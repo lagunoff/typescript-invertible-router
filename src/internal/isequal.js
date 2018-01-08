@@ -22,8 +22,8 @@ deepEq = function(a, b, aStack, bStack) {
   // if (a instanceof _) a = a._wrapped;
   // if (b instanceof _) b = b._wrapped;
   // Compare `[[Class]]` names.
-  var className = toString.call(a);
-  if (className !== toString.call(b)) return false;
+  var className = Object.prototype.toString.call(a);
+  if (className !== Object.prototype.toString.call(b)) return false;
   switch (className) {
       // Strings, numbers, regular expressions, dates, and booleans are compared by value.
     case '[object RegExp]':

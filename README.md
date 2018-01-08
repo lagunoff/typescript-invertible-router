@@ -1,6 +1,6 @@
 This library helps to implement routing in web-applications. It
 provides DSL for declaring routes, declaration then can be used for
-both matching urls and printing links to any location inside
+both matching urls and printing links to any location inside the
 application.
 
 ```ts

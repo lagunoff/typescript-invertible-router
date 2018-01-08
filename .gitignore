@@ -15,3 +15,4 @@
 !/src/internal/isequal.d.ts
 /tests/
 /examples/node_modules
+/lib

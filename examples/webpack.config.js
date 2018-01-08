@@ -6,11 +6,12 @@ const tsConfig = require('./tsconfig.json');
 
 module.exports = function(env={}) {
   const entry = env.entry || './restcountries/index.tsx';
+  const output = env.output || path.join(__dirname, 'public');
   return {
     context: path.resolve(__dirname),
     entry: { entry: [entry], },
     output: {
-      path: path.join(__dirname, 'public'),
+      path: output,
       filename: '[name].bundle.js',
     },
     module: {

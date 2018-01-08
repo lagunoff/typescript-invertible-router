@@ -11,9 +11,9 @@ export {
   segment,
   path,
   extra,
-} from './src/parser';
+} from './parser';
 
-import * as parser from './src/parser';
+import * as parser from './parser';
 export { parser as parser };
 
 
@@ -35,7 +35,7 @@ export {
   array,
   literals,
   of,
-} from './src/adapter';
+} from './adapter';
 
-import * as adapter from './src/adapter';
+import * as adapter from './adapter';
 export { adapter as adapter };

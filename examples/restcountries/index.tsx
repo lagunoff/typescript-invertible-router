@@ -1,6 +1,6 @@
 import * as React from 'react';
 import * as ReactDOM from 'react-dom';
-import * as r from '../react';
+import * as r from '../../';
 import { Parser, ParserChain } from '../../src/parser';
 import { TotalAdapter, PartialAdapter } from '../../src/adapter';
 import jss from 'jss'
@@ -18,7 +18,7 @@ import RegionPage from './RegionPage';
 export const parser = r.oneOf(
   r.tag('Home').extra({ component: HomePage }),
   r.tag('Country').path('/countries').segment('code', r.nestring).extra({ component: CountryPage }),
-  r.tag('Countries').path('/countries').params({ search: r.string.withDefault('') }).extra({ component: SearchPage }),
+  r.tag('Search').path('/countries').params({ search: r.string.withDefault('') }).extra({ component: SearchPage }),
   r.tag('Region').path('/region').segment('region', r.literals('Africa', 'Americas', 'Asia', 'Europe', 'Oceania')).extra({ component: RegionPage }),
 );
 

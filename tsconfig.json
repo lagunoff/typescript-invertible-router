@@ -2,16 +2,16 @@
   "compilerOptions": {
     "declaration": true,
     "jsx": "react",
-    "lib": [ "es6", "dom" ],
+    "lib": ["es6", "dom"],
     "module": "commonjs",
     "noFallthroughCasesInSwitch": true,
     "noImplicitReturns": true,
     "noImplicitThis": true,
     "noImplicitUseStrict": true,
+    "outDir": "./lib",
     "sourceMap": false,
     "strictNullChecks": true,
     "target": "es5"
   },
-  "files": ["./index.ts"],
-  "include": ["./src/**/*.ts", "./tests/**/*.ts", "./examples/**/*.ts", "./examples/**/*.tsx"]
+  "include": ["./src/**/*.ts"]
 }
