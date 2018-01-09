@@ -27,8 +27,7 @@ export interface State {
 class RegionPage extends React.Component<Props, State> {
 
   static initData(route: Props['route']): Promise<Data> {
-    const query = '?fields=name;alpha2Code';
-    const url = `https://restcountries.eu/rest/v2/region/${encodeURIComponent(route.region)}?fields=name;alpha2Code;altSpellings;nativeName`;
+    const url = `https://restcountries.eu/rest/v2/region/${encodeURIComponent(route.region)}?fields=name;alpha3Code;altSpellings;nativeName`;
     return fetch(url).then(r => r.ok ? r.json() : []);
   }
 
@@ -37,7 +36,7 @@ class RegionPage extends React.Component<Props, State> {
     return <div className={classes.root}>
       <h2>{route.region}</h2>
       <ul>
-	{data.map(country => <CountryListItem key={country.alpha2Code} country={country}/>)}
+	{data.map(country => <CountryListItem key={country.alpha3Code} country={country}/>)}
       </ul>
     </div>;
   }

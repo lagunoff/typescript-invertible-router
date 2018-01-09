@@ -1,6 +1,5 @@
 {
   "compilerOptions": {
-    "declaration": true,
     "experimentalDecorators": true,
     "jsx": "react",
     "lib": [ "es6", "dom" ],
@@ -13,6 +12,5 @@
     "strictNullChecks": true,
     "target": "es5"
   },
-  "files": ["./index.ts"],
   "include": ["**/*.ts", "**/*.tsx"]
 }

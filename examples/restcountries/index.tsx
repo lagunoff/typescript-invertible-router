@@ -1,8 +1,7 @@
 import * as React from 'react';
 import * as ReactDOM from 'react-dom';
-import * as r from '../../';
-import { Parser, ParserChain } from '../../src/parser';
-import { TotalAdapter, PartialAdapter } from '../../src/adapter';
+import * as r from '../../src';
+import { Parser } from '../../src';
 import jss from 'jss'
 import preset from 'jss-preset-default'
 jss.setup(preset());
@@ -111,6 +110,11 @@ export const styles = {
       transition: 'color .3s ease,border-color .3s ease',
     },
 
+    'a.no-visited:visited': {
+      color: '#0089ff',
+      borderColor: 'rgba(0,137,255,.3)',
+    },
+    
     'a:visited': {
       color: '#b40eb4',
       borderColor: 'rgba(180,14,180,.3)',

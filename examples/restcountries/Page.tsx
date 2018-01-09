@@ -42,7 +42,7 @@ export const styles = {
   content: {
     maxWidth: 500,
     padding: [0, 16],
-    margin: [0, 'auto'],
+    margin: [0, 'auto', 24 * 3, 'auto'],
     boxSizing: 'content-box',
   },
 

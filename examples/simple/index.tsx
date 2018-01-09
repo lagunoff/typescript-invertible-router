@@ -1,12 +1,12 @@
 import * as React from 'react';
 import * as ReactDOM from 'react-dom';
-import * as r from '../../';
+import * as r from '../../src';
 
 
 const parser = r.oneOf(
   r.tag('Shop').path('/shop'),
-  r.tag('Category').path('/category').segment('slug', r.string).params({ page: r.nat.withDefault(1) }),
-  r.tag('Item').path('/item').segment('id', r.string),
+  r.tag('Category').path('/category').segment('slug', r.nestring).params({ page: r.nat.withDefault(1) }),
+  r.tag('Item').path('/item').segment('id', r.nestring),
   r.tag('Page404').path('/404'),
 );
 
@@ -16,7 +16,7 @@ type Route = typeof parser['_O'];
 
 
 /// state
-export interface State {
+interface State {
   history: Route[];
 }
 

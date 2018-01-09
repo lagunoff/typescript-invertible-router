@@ -1,12 +1,12 @@
 import * as React from 'react';
 import jss from 'jss';
-import { Country } from './Country';
+import { Country } from './CountryPage';
 import { parser } from './';
 import pageComponent from './Page';
 
 
 /// Data
-export type CountryBrief = Pick<Country, 'name'|'alpha2Code'|'altSpellings'|'nativeName'>;
+export type CountryBrief = Pick<Country, 'name'|'alpha3Code'|'altSpellings'|'nativeName'>;
 export type Data = CountryBrief[];
 
 
@@ -28,8 +28,7 @@ class SearchPage extends React.Component<Props, State> {
 
   static initData(route: Props['route']): Promise<Data> {
     if (route.search === '') return Promise.resolve([]);
-    const query = '?fields=name;alpha2Code';
-    const url = `https://restcountries.eu/rest/v2/name/${encodeURIComponent(route.search)}?fields=name;alpha2Code;altSpellings;nativeName`;
+    const url = `https://restcountries.eu/rest/v2/name/${encodeURIComponent(route.search)}?fields=name;alpha3Code;altSpellings;nativeName`;
     return fetch(url).then(r => r.ok ? r.json() : []);
   }
 
@@ -39,7 +38,7 @@ class SearchPage extends React.Component<Props, State> {
       {data.length !== 0 && <React.Fragment>
 	<h2>Found {data.length} {data.length === 1 ? 'country' : 'countries'}</h2>
 	<ul>
-	  {data.map(country => <CountryListItem key={country.alpha2Code} country={country}/>)}
+	  {data.map(country => <CountryListItem key={country.alpha3Code} country={country}/>)}
 	</ul>
       </React.Fragment>}
       {data.length === 0 && route.search !== '' && <div className={classes.notFound}>
@@ -59,7 +58,7 @@ export function CountryListItem(props: { country: CountryBrief }) {
   const { country } = props;
   return <li className={classes.listItem}>
     <div>
-      <a href={'#' + parser.print({ tag: 'Country', code: country.alpha2Code })}>{country.name}, {country.nativeName}</a>
+      <a href={'#' + parser.print({ tag: 'Country', code: country.alpha3Code })}>{country.name}, {country.nativeName}</a>
     </div>
     <div>
       {country.altSpellings.join(', ')}

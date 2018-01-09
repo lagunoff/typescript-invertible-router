@@ -29,7 +29,7 @@ export default class Search extends React.Component<Props, State> {
 
   handleSubmit = e => {
     e.preventDefault();
-    window.location.href = '#' + parser.print({ tag: 'Countries', search: this.state.value });
+    window.location.href = '#' + parser.print({ tag: 'Search', search: this.state.value });
   };
 
   render() {
@@ -39,7 +39,7 @@ export default class Search extends React.Component<Props, State> {
 	<input
 	  autoFocus
           type="text"
-          placeholder="Search countries"
+          placeholder="Search by name"
      	  value={value}
           onChange={this.handleChange}
 	/>

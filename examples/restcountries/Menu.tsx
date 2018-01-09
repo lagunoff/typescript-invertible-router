@@ -19,7 +19,7 @@ export default class Menu extends React.Component<Props, State> {
 
   menu: Array<RouteIn & { title: string }> = [
     { tag: 'Home', title: 'Home' },
-    { tag: 'Countries', search: '', title: 'Search' },
+    { tag: 'Search', search: '', title: 'Search' },
     { tag: 'Region', region: 'Africa', title: 'Africa' },
     { tag: 'Region', region: 'Americas', title: 'Americas' },
     { tag: 'Region', region: 'Asia', title: 'Asia' },
@@ -32,7 +32,7 @@ export default class Menu extends React.Component<Props, State> {
     return (
       <ul className={rootClass}>
 	{this.menu.map((route, idx) => (
-	  <li key={idx}><a href={'#' + parser.print(route)}>{route.title}</a></li>
+	  <li key={idx}><a className="no-visited" href={'#' + parser.print(route)}>{route.title}</a></li>
 	))}
       </ul>
     );
