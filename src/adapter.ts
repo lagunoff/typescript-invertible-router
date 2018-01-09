@@ -1,6 +1,6 @@
 import isEqual from './internal/isequal';
-import { Option, some, none, traverse } from './internal/option'
 import { Expr } from './internal/expr';
+import { Option, some, none, traverse } from './option'
 
 
 /// adapter instance methods
@@ -184,7 +184,7 @@ export { iso8601Adapter as date };
 const booleanAdapter = new PartialAndTotalAdapter<boolean>(
   x => x === '' || x === 'false' || x === '0' || x === 'off' ? some(false) : some(true), // applyTotal
   x => x ? 'true' : 'false', // unapplyTotal
-  x => x.unwrap(some(false), () => some(true)), // applyPartial
+  x => x.fold(some(false), () => some(true)), // applyPartial
   x => x ? some('') : none,  // unapplyPartial
 );
 export { booleanAdapter as boolean };
@@ -228,6 +228,29 @@ export function of<A extends Expr>(a: A): PartialAndTotalAdapter<A> {
   const applyPartial = applyTotal;
   const unapplyPartial = () => none;
   return new PartialAndTotalAdapter(applyTotal, unapplyTotal, applyPartial, unapplyPartial);
+}
+
+
+/// partial adapter
+export function partialAdapter<A>(applyPartial: (s: Option<string>) => Option<A>, unapplyPartial: (a: A) => Option<string>): PartialAdapter<A> {
+  return new PartialAdapter<A>(applyPartial, unapplyPartial);
+}
+
+
+/// total adapter
+export function totalAdapter<A>(applyTotal: (s: string) => Option<A>, unapplyTotal: (a: A) => string): TotalAdapter<A> {
+  return new TotalAdapter<A>(applyTotal, unapplyTotal);
+}
+
+
+/// partial and total adapter
+export function partialAndTotalAdapter<A>(
+  applyTotal: (s: string) => Option<A>,
+  unapplyTotal: (a: A) => string,
+  applyPartial: (s: Option<string>) => Option<A>,
+  unapplyPartial: (a: A) => Option<string>,
+): PartialAndTotalAdapter<A> {
+  return new PartialAndTotalAdapter<A>(applyTotal, unapplyTotal, applyPartial, unapplyPartial);
 }
 
 

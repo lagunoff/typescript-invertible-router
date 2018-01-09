@@ -1,4 +1,4 @@
-import { Expr } from './expr';
+import { Expr } from './internal/expr';
 
 
 /// adt
@@ -28,8 +28,8 @@ export class OptionBase<A> {
     }
   }
 
-  /// unwrap
-  unwrap<B extends Expr, C extends Expr>(fromNone: B, fromSome: (x: A) => C): B|C {
+  /// fold
+  fold<B extends Expr, C extends Expr>(fromNone: B, fromSome: (x: A) => C): B|C {
     const $this = this as any as Option<A>;
     switch ($this.tag) {
       case 'None': return fromNone;
@@ -39,7 +39,7 @@ export class OptionBase<A> {
 
   /// withDefault
   withDefault<B extends Expr>(def: B): A|B {
-    return this.unwrap(def, x => x);
+    return this.fold(def, x => x);
   }
   
 }
