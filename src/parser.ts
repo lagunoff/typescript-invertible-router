@@ -174,7 +174,7 @@ export function oneOf(): OneOfParser<any> {
   for (let i = 0; i < parsers.length; i++) {
     const tag = getTag(parsers[i]);
     if (tag) description[tag] = parsers[i];
-    else throw new Error(`oneOf: all arguments should have tags`);
+    else throw new Error(`oneOf: all arguments should be constructed with r.tag`);
   }
   return new Parser([{ tag: 'OneOf', description }]);
 }
@@ -194,7 +194,7 @@ export function prepareState(url: string): ParserState {
 
 
 /// construct url from the result of `Parser.print`
-export function printChunks(chunks: [Array<string>, Record<string, string>]): string {
+export function printChunks(chunks: UrlChunks): string {
   const [segments, params] = chunks;
   const query = Object.keys(params).map(key => {
     const [k, v] = [prettyUriEncode(key), prettyUriEncode(params[key])];
@@ -224,98 +224,96 @@ function escapeRegExp(text) {
 
 /// parse state
 function parseStateImpl<O>(chain: ParserChain, state: ParserState): Array<[O, ParserState]> {
-  const $this = chain;
-  switch($this.tag) {
-  case 'Params': {
-    const output = {} as O;
-    for (let key in $this.description) {
-      if (!$this.description.hasOwnProperty(key)) continue;
-      const item = $this.description[key];
-      const adapter = item.tag === 'NamedAdapter' ? item.adapter : item;
-      const paramKey = item.tag === 'NamedAdapter' ? item.name : key;
-      const maybeValue = adapter.applyPartial(state.params.hasOwnProperty(paramKey) ? some(state.params[paramKey]) : none);
-      if (maybeValue.tag === 'None') return [];
-      output[key] = maybeValue.value;
-    }
-    return [[output, state]];      
-  }
-  case 'Segment': {
-    const output = {} as O;
-    if (state.unvisited.length === 0) return [];
-    const segment = decodeURIComponent(state.unvisited[0]);
-    const result = $this.adapter.applyTotal(segment);
-    if (result.tag === 'None') return [];
-    output[$this.key] = result.value;
-    const unvisited = state.unvisited.slice(1);
-    const visited = state.visited.concat(segment);
-    return [[output, { unvisited, visited, params: state.params }]];   
-  }
-  case 'Path': {
-    const output = {} as O;
-    let mathes = true;
-    for (let j in $this.segments) if (state.unvisited[j] !== $this.segments[j]) { mathes = false; break; }
-    if (!mathes) return [];
-    const unvisited = state.unvisited.slice(0);
-    const visited = state.visited.concat(unvisited.splice(0, $this.segments.length));
-    return [[output, { unvisited, visited, params: state.params }]];
-  }
-  case 'OneOf': {
-    const output: any[] = []
-    for (const key in $this.description) {
-      if (!$this.description.hasOwnProperty(key)) continue;
-      for (const pair of $this.description[key].parseState(state)) {
-	output.push(pair);
+  switch(chain.tag) {
+    case 'Params': {
+      const output = {} as O;
+      for (let key in chain.description) {
+        if (!chain.description.hasOwnProperty(key)) continue;
+        const item = chain.description[key];
+        const adapter = item.tag === 'NamedAdapter' ? item.adapter : item;
+        const paramKey = item.tag === 'NamedAdapter' ? item.name : key;
+        const maybeValue = adapter.applyPartial(state.params.hasOwnProperty(paramKey) ? some(state.params[paramKey]) : none);
+        if (maybeValue.tag === 'None') return [];
+        output[key] = maybeValue.value;
       }
+      return [[output, state]];      
     }
-    return output;
-  }
-  case 'Extra': {
-    return [[$this.payload as O, state]];
-  }
-  case 'Custom': {
-    return $this.parse(state);
-  }
-  case 'Embed': {
-    return $this.parser.parseState(state).map(([r, s]) => [{ [$this.key]: r }, s] as any);
-  }
+    case 'Segment': {
+      const output = {} as O;
+      if (state.unvisited.length === 0) return [];
+      const segment = decodeURIComponent(state.unvisited[0]);
+      const result = chain.adapter.applyTotal(segment);
+      if (result.tag === 'None') return [];
+      output[chain.key] = result.value;
+      const unvisited = state.unvisited.slice(1);
+      const visited = state.visited.concat(segment);
+      return [[output, { unvisited, visited, params: state.params }]];   
+    }
+    case 'Path': {
+      const output = {} as O;
+      let mathes = true;
+      for (let j in chain.segments) if (state.unvisited[j] !== chain.segments[j]) { mathes = false; break; }
+      if (!mathes) return [];
+      const unvisited = state.unvisited.slice(0);
+      const visited = state.visited.concat(unvisited.splice(0, chain.segments.length));
+      return [[output, { unvisited, visited, params: state.params }]];
+    }
+    case 'OneOf': {
+      const output: any[] = []
+      for (const key in chain.description) {
+        if (!chain.description.hasOwnProperty(key)) continue;
+        for (const pair of chain.description[key].parseState(state)) {
+	  output.push(pair);
+        }
+      }
+      return output;
+    }
+    case 'Extra': {
+      return [[chain.payload as O, state]];
+    }
+    case 'Custom': {
+      return chain.parse(state);
+    }
+    case 'Embed': {
+      return chain.parser.parseState(state).map(([r, s]) => [{ [chain.key]: r }, s] as any);
+    }
   }
 }
 
 
 /// print chunks
 function printChunksImpl<I>(chain: ParserChain, route: I): UrlChunks {
-  const $this = chain;
-  switch($this.tag) {
-  case 'Params': {
-    const params = {} as any;
-    for (let key in $this.description) { 
-      if (!$this.description.hasOwnProperty(key)) continue;
-      const item = $this.description[key];
-      const adapter = item.tag === 'NamedAdapter' ? item.adapter : item;
-      const paramKey = item.tag === 'NamedAdapter' ? item.name : key;
-      const maybeValue = adapter.unapplyPartial(route[key]);
-      if (maybeValue.tag === 'Some') params[paramKey] = maybeValue.value;
+  switch(chain.tag) {
+    case 'Params': {
+      const params = {} as any;
+      for (let key in chain.description) { 
+        if (!chain.description.hasOwnProperty(key)) continue;
+        const item = chain.description[key];
+        const adapter = item.tag === 'NamedAdapter' ? item.adapter : item;
+        const paramKey = item.tag === 'NamedAdapter' ? item.name : key;
+        const maybeValue = adapter.unapplyPartial(route[key]);
+        if (maybeValue.tag === 'Some') params[paramKey] = maybeValue.value;
+      }
+      return [[], params];
     }
-    return [[], params];
-  }
-  case 'Segment': {
-    const segment = $this.adapter.unapplyTotal(route[$this.key]);
-    return [[prettyUriEncode(segment)], {}];
-  }
-  case 'Path': {
-    return [$this.segments, {}];
-  }
-  case 'OneOf': {
-    return $this.description[route['tag']].printChunks(route);
-  }
-  case 'Extra': {
-    return [[], {}];
-  }
-  case 'Custom': {
-    return $this.print(route);
-  }
-  case 'Embed': {
-    return $this.parser.printChunks(route[$this.key]);
-  }
+    case 'Segment': {
+      const segment = chain.adapter.unapplyTotal(route[chain.key]);
+      return [[prettyUriEncode(segment)], {}];
+    }
+    case 'Path': {
+      return [chain.segments, {}];
+    }
+    case 'OneOf': {
+      return chain.description[route['tag']].printChunks(route);
+    }
+    case 'Extra': {
+      return [[], {}];
+    }
+    case 'Custom': {
+      return chain.print(route);
+    }
+    case 'Embed': {
+      return chain.parser.printChunks(route[chain.key]);
+    }
   }
 }
