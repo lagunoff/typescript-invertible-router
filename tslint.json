@@ -1,0 +1,24 @@
+{
+  "extends": "tslint-config-airbnb",
+  "rules": {
+    "prefer-array-literal": false,
+    "max-line-length": false,
+    "object-shorthand-properties-first": false,
+    "no-increment-decrement": false,
+    "ter-arrow-parens": false,
+    "no-var-self": false,
+    "radix": false,
+    "no-unused-variable": [{ "ignore-pattern": "^_" }],
+    "whitespace": [
+      true,
+      "check-branch",
+      "check-operator",
+      "check-module",
+      "check-separator",
+      "check-rest-spread",
+      "check-type",
+      "check-typecast",
+      "check-preblock"
+    ]
+  }
+}

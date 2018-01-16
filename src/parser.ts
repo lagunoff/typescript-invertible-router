@@ -1,8 +1,5 @@
-import isEqual from './internal/isequal';
-import { Expr } from './internal/expr';
-import * as adapter from './adapter';
-import { Option, some, none, traverse } from './option'
-import { Adapter, PartialAdapter, TotalAdapter, NamedAdapter, HasTotalAdapter, HasPartialAdapter } from './adapter';
+import { some, none } from './option';
+import { HasTotalAdapter, HasPartialAdapter } from './adapter';
 
 
 /// Invertible url parser library
@@ -10,7 +7,7 @@ import { Adapter, PartialAdapter, TotalAdapter, NamedAdapter, HasTotalAdapter, H
 /// https://github.com/evancz/url-parser/tree/2.0.1
 
 
-/// Parser state
+/// parser state
 export interface ParserState {
   unvisited: string[];
   visited: string[];
@@ -23,10 +20,10 @@ export type UrlChunks = [string[], Record<string, string>];
 
 
 /// reversible parser
-export class Parser<O, I=O, Extra={}> {
+export class Parser<O, I=O, Extra = {}> {
   readonly _O: O;
   readonly _I: I;
-  readonly _Extra: Extra;
+  readonly _Extra: Extra; // tslint:disable-line:variable-name
 
   constructor(
     readonly chain: ParserChain[],
@@ -35,7 +32,7 @@ export class Parser<O, I=O, Extra={}> {
   /// parse
   parse(url: string): O|null {
     const results = this.parseState(prepareState(url));
-    for (let [route, state] of results) {
+    for (const [route, state] of results) {
       if (state.unvisited.length === 0) return route;
     }
     return null;
@@ -60,14 +57,14 @@ export class Parser<O, I=O, Extra={}> {
   /// print route to chunks
   printChunks(route: I): UrlChunks {
     return this.chain.map(x => printChunksImpl(x, route)).reduce((acc, [segments, params]: any) => {
-      for (let segment of segments) acc[0].push(segment);
-      for (let key in params) params.hasOwnProperty(key) && (acc[1][key] = params[key]);
+      for (const segment of segments) acc[0].push(segment);
+      for (const key in params) params.hasOwnProperty(key) && (acc[1][key] = params[key]);
       return acc;
-    }, [[], {}]);
+    }, [[], {}]); // tslint:disable-line:align
   }
 
   /// path
-  path(segmentsStr: string): Parser<O,I,Extra> {
+  path(segmentsStr: string): Parser<O, I, Extra> {
     const segments = segmentsStr.split('/').filter(x => x !== '').map(prettyUriEncode);
     return new Parser(this.chain.concat({ tag: 'Path', segments } as ParserChain));
   }
@@ -83,12 +80,12 @@ export class Parser<O, I=O, Extra={}> {
   }
   
   /// join
-  join<That extends Parser<any,any,any>>(that: That): Parser<O & That['_O'], I & That['_I'], Extra & That['_Extra']> {
+  join<That extends Parser<any, any, any>>(that: That): Parser<O & That['_O'], I & That['_I'], Extra & That['_Extra']> {
     return new Parser(this.chain.concat(that.chain));
   }
   
   /// embed
-  embed<K extends string, That extends Parser<any,any,any>>(key: K, that: That): Parser<O & { [k in K]: That['_O'] }, I & { [k in K]: That['_I'] }, Extra> {
+  embed<K extends string, That extends Parser<any, any, any>>(key: K, that: That): Parser<O & { [k in K]: That['_O'] }, I & { [k in K]: That['_I'] }, Extra> {
     return new Parser(this.chain.concat({ tag: 'Embed', key, parser: that } as ParserChain));
   }
   
@@ -104,8 +101,8 @@ export type ParserChain<O=any, I=O, E=any> =
   | { tag: 'Params', description: Record<string, HasPartialAdapter<any>> }
   | { tag: 'Segment', key: string, adapter: HasTotalAdapter<any> }
   | { tag: 'Path', segments: string[] }
-  | { tag: 'Embed', key: string, parser: Parser<any,any,any> }
-  | { tag: 'OneOf', description: Record<string, Parser<any,any,any>> }
+  | { tag: 'Embed', key: string, parser: Parser<any, any, any> }
+  | { tag: 'OneOf', description: Record<string, Parser<any, any, any>> }
   | { tag: 'Extra', payload: E }
   | { tag: 'Custom', parse(s: ParserState): Array<[O, ParserState]>, print(a: I): [string[], Record<string, string>] };
 
@@ -117,14 +114,14 @@ export function tag<T extends string>(tag: T): Parser<{ tag: T }, { tag: T }, { 
 
 
 /// path
-export function path(segmentsStr: string): Parser<{},{},{}> {
+export function path(segmentsStr: string): Parser<{}, {}, {}> {
   const segments = segmentsStr.split('/').filter(x => x !== '').map(prettyUriEncode);
   return new Parser([{ tag: 'Path', segments }]);
 }
 
 
 /// segment
-export function segment<K extends string, A>(key: K, adapter: HasTotalAdapter<A>): Parser<{ [k in K]: A },{ [k in K]: A }, {}> {
+export function segment<K extends string, A>(key: K, adapter: HasTotalAdapter<A>): Parser<{ [k in K]: A }, { [k in K]: A }, {}> {
   return new Parser([{ tag: 'Segment', key, adapter }]);
 }
 
@@ -142,15 +139,15 @@ export function params<Keys extends Record<string, HasPartialAdapter<any>>>(desc
 
 
 /// custom
-export function custom<O, I=O>(parse: (s: ParserState) => Array<[O, ParserState]>, print: (a: I) => [string[], Record<string, string>]): Parser<O, I, {}> {
+export function custom<O, I = O>(parse: (s: ParserState) => Array<[O, ParserState]>, print: (a: I) => [string[], Record<string, string>]): Parser<O, I, {}> {
   return new Parser([{ tag: 'Custom', parse, print }]);
 }
 
 
 /// combine several parsers
-export type TaggedParser = Parser<any,any,{ tag: string }>;
+export type TaggedParser = Parser<any, any, { tag: string }>;
 export type T = TaggedParser;
-export type OneOfParser<P extends T> = Parser<P['_O'], P['_I'], {}>
+export type OneOfParser<P extends T> = Parser<P['_O'], P['_I'], {}>;
   
 export function oneOf<P1 extends T>(a: P1): OneOfParser<P1>;
 export function oneOf<P1 extends T, P2 extends T>(a: P1, b: P2): OneOfParser<P1|P2>;
@@ -164,7 +161,7 @@ export function oneOf<P1 extends T, P2 extends T, P3 extends T, P4 extends T, P5
 export function oneOf<array extends T[]>(array: array): OneOfParser<array[number]>;
 export function oneOf(): OneOfParser<any> {
   function getTag(parser: T): string|null {
-    for (let c of parser.chain) {
+    for (const c of parser.chain) {
       if (c.tag === 'Extra' && typeof(c.payload['tag']) === 'string') return c.payload['tag'];
     }
     return null;
@@ -174,7 +171,7 @@ export function oneOf(): OneOfParser<any> {
   for (let i = 0; i < parsers.length; i++) {
     const tag = getTag(parsers[i]);
     if (tag) description[tag] = parsers[i];
-    else throw new Error(`oneOf: all arguments should be constructed with r.tag`);
+    else throw new Error(`oneOf: argument #${i + 1} wasn't provided with a tag`);
   }
   return new Parser([{ tag: 'OneOf', description }]);
 }
@@ -184,12 +181,12 @@ export function oneOf(): OneOfParser<any> {
 export function prepareState(url: string): ParserState {
   const [path, query] = url.split('?');
   const unvisited = path.split('/').filter(x => x !== '');
-  const params = (query || '').split('&').filter(x => x !== '').reduce((acc, pair) => { 
+  const params = (query || '').split('&').filter(x => x !== '').reduce<Record<string, string>>((acc, pair) => { 
     const [key, value] = pair.split('=').map(decodeURIComponent);
     acc[key] = value || '';
     return acc;
-  }, {} as Record<string, string>)
-  return { unvisited, visited: [], params: params };
+  }, {}); // tslint:disable-line:align
+  return { unvisited, visited: [], params };
 }
 
 
@@ -209,7 +206,7 @@ export function printChunks(chunks: UrlChunks): string {
 
 
 /// custom uri encoding
-const prettyUriEncode: (str: string) => string = function() {
+const prettyUriEncode: (str: string) => string = function () {
   const keepIntact = [':', ','].reduce((acc, c) => (acc[encodeURIComponent(c)] = c, acc), {});
   const re = new RegExp(Object.keys(keepIntact).map(escapeRegExp).join('|'), 'g');
   return str => encodeURIComponent(str).replace(re, sub => keepIntact[sub]);
@@ -224,10 +221,10 @@ function escapeRegExp(text) {
 
 /// parse state
 function parseStateImpl<O>(chain: ParserChain, state: ParserState): Array<[O, ParserState]> {
-  switch(chain.tag) {
+  switch (chain.tag) {
     case 'Params': {
       const output = {} as O;
-      for (let key in chain.description) {
+      for (const key in chain.description) {
         if (!chain.description.hasOwnProperty(key)) continue;
         const item = chain.description[key];
         const adapter = item.tag === 'NamedAdapter' ? item.adapter : item;
@@ -252,14 +249,14 @@ function parseStateImpl<O>(chain: ParserChain, state: ParserState): Array<[O, Pa
     case 'Path': {
       const output = {} as O;
       let mathes = true;
-      for (let j in chain.segments) if (state.unvisited[j] !== chain.segments[j]) { mathes = false; break; }
+      for (const j in chain.segments) if (state.unvisited[j] !== chain.segments[j]) { mathes = false; break; }
       if (!mathes) return [];
       const unvisited = state.unvisited.slice(0);
       const visited = state.visited.concat(unvisited.splice(0, chain.segments.length));
       return [[output, { unvisited, visited, params: state.params }]];
     }
     case 'OneOf': {
-      const output: any[] = []
+      const output: any[] = [];
       for (const key in chain.description) {
         if (!chain.description.hasOwnProperty(key)) continue;
         for (const pair of chain.description[key].parseState(state)) {
@@ -283,10 +280,10 @@ function parseStateImpl<O>(chain: ParserChain, state: ParserState): Array<[O, Pa
 
 /// print chunks
 function printChunksImpl<I>(chain: ParserChain, route: I): UrlChunks {
-  switch(chain.tag) {
+  switch (chain.tag) {
     case 'Params': {
       const params = {} as any;
-      for (let key in chain.description) { 
+      for (const key in chain.description) { 
         if (!chain.description.hasOwnProperty(key)) continue;
         const item = chain.description[key];
         const adapter = item.tag === 'NamedAdapter' ? item.adapter : item;

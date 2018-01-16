@@ -1,6 +1,6 @@
-import isEqual from './internal/isequal';
+import isEqual from './internal/isequal'; // tslint:disable-line:import-name
 import { Expr } from './internal/expr';
-import { Option, some, none, traverse } from './option'
+import { Option, some, none, traverse } from './option';
 
 
 /// adapter instance methods
@@ -21,26 +21,26 @@ export class AdapterBase<A> {
   withDefault<B>(this: NamedAdapter<A>, defaultVal: B): NamedAdapter<A|B>;
   withDefault<B>(this: Adapter<A>, defaultVal: B): Adapter<A|B>;
   withDefault<B>(this: Adapter<A>, defaultVal: B): Adapter<A|B> {
-    const $this = this as any as Adapter<A>;
-    switch($this.tag) {
-    case 'TotalAdapter': {
-      const applyTotal = (s: string) => some($this.applyTotal(s).withDefault(defaultVal));
-      const unapplyTotal = (a: A) => $this.unapplyTotal(a);
-      return new TotalAdapter(applyTotal, unapplyTotal);
-    }
-    case 'PartialAdapter': {
-      const applyPartial = (s: Option<string>) => some($this.applyPartial(s).withDefault(defaultVal));
-      const unapplyPartial = (aOrB: A|B) => isEqual(aOrB, defaultVal) ? none : $this.unapplyPartial(aOrB as A);
-      return new PartialAdapter(applyPartial, unapplyPartial);
-    }
-    case 'PartialAndTotalAdapter': {
-      const applyPartial = (s: Option<string>) => some($this.applyPartial(s).withDefault(defaultVal));
-      const unapplyPartial = (aOrB: A|B) => isEqual(aOrB, defaultVal) ? none : $this.unapplyPartial(aOrB as A);
-      return new PartialAdapter(applyPartial, unapplyPartial);
-    }
-    case 'NamedAdapter': {
-      return new NamedAdapter($this.name, $this.adapter.withDefault(defaultVal) as PartialAdapter<A>);
-    }
+    const $this = this;
+    switch ($this.tag) {
+      case 'TotalAdapter': {
+        const applyTotal = (s: string) => some($this.applyTotal(s).withDefault(defaultVal));
+        const unapplyTotal = (a: A) => $this.unapplyTotal(a);
+        return new TotalAdapter(applyTotal, unapplyTotal);
+      }
+      case 'PartialAdapter': {
+        const applyPartial = (s: Option<string>) => some($this.applyPartial(s).withDefault(defaultVal));
+        const unapplyPartial = (aOrB: A|B) => isEqual(aOrB, defaultVal) ? none : $this.unapplyPartial(aOrB as A);
+        return new PartialAdapter(applyPartial, unapplyPartial);
+      }
+      case 'PartialAndTotalAdapter': {
+        const applyPartial = (s: Option<string>) => some($this.applyPartial(s).withDefault(defaultVal));
+        const unapplyPartial = (aOrB: A|B) => isEqual(aOrB, defaultVal) ? none : $this.unapplyPartial(aOrB as A);
+        return new PartialAdapter(applyPartial, unapplyPartial);
+      }
+      case 'NamedAdapter': {
+        return new NamedAdapter($this.name, $this.adapter.withDefault(defaultVal) as PartialAdapter<A>);
+      }
     }
   }
 
@@ -52,27 +52,27 @@ export class AdapterBase<A> {
   dimap<B>(this: Adapter<A>, f: (a: A) => B, g: (b: B) => A): Adapter<B>;
   dimap<B>(this: Adapter<A>, f: (a: A) => B, g: (b: B) => A): Adapter<B> {
     const $this = this;
-    switch($this.tag) {
-    case 'TotalAdapter': {
-      const applyTotal = (s: string) => $this.applyTotal(s).map(f);
-      const unapplyTotal = (b: B) => $this.unapplyTotal(g(b));
-      return new TotalAdapter(applyTotal, unapplyTotal);
-    }
-    case 'PartialAdapter': {
-      const applyPartial = (s: Option<string>) => $this.applyPartial(s).map(f);
-      const unapplyPartial = (b: B) => $this.unapplyPartial(g(b));
-      return new PartialAdapter(applyPartial, unapplyPartial);
-    }
-    case 'PartialAndTotalAdapter': {
-      const applyTotal = (s: string) => $this.applyTotal(s).map(f);
-      const unapplyTotal = (b: B) => $this.unapplyTotal(g(b));
-      const applyPartial = (s: Option<string>) => $this.applyPartial(s).map(f);
-      const unapplyPartial = (b: B) => $this.unapplyPartial(g(b));
-      return new PartialAndTotalAdapter(applyTotal, unapplyTotal, applyPartial, unapplyPartial);
-    }
-    case 'NamedAdapter': {
-      return new NamedAdapter($this.name, $this.adapter.dimap(f, g) as PartialAdapter<B>);
-    }
+    switch ($this.tag) {
+      case 'TotalAdapter': {
+        const applyTotal = (s: string) => $this.applyTotal(s).map(f);
+        const unapplyTotal = (b: B) => $this.unapplyTotal(g(b));
+        return new TotalAdapter(applyTotal, unapplyTotal);
+      }
+      case 'PartialAdapter': {
+        const applyPartial = (s: Option<string>) => $this.applyPartial(s).map(f);
+        const unapplyPartial = (b: B) => $this.unapplyPartial(g(b));
+        return new PartialAdapter(applyPartial, unapplyPartial);
+      }
+      case 'PartialAndTotalAdapter': {
+        const applyTotal = (s: string) => $this.applyTotal(s).map(f);
+        const unapplyTotal = (b: B) => $this.unapplyTotal(g(b));
+        const applyPartial = (s: Option<string>) => $this.applyPartial(s).map(f);
+        const unapplyPartial = (b: B) => $this.unapplyPartial(g(b));
+        return new PartialAndTotalAdapter(applyTotal, unapplyTotal, applyPartial, unapplyPartial);
+      }
+      case 'NamedAdapter': {
+        return new NamedAdapter($this.name, $this.adapter.dimap(f, g) as PartialAdapter<B>);
+      }
     }
   }
 }
@@ -155,7 +155,7 @@ const natAdapter = new PartialAndTotalAdapter<number>(
   str => { const i = parseInt(str); return !isNaN(i) && i >= 0 ? some(i) : none; }, // applyTotal
   String, // unapplyTotal
   x => x.chain(str => { const i = parseInt(str); return !isNaN(i) && i >= 0 ? some(i) : none; }), // applyPartial
-  x => some(String(x)) // unapplyPartial
+  x => some(String(x)), // unapplyPartial
 );
 export { natAdapter as nat };
 
@@ -201,7 +201,7 @@ export function array<A>(adapter: HasTotalAdapter<A>): PartialAndTotalAdapter<A[
 }
 
 
-/// one or more string literals
+/// One or more string literals
 export function literals<A extends string>(a: A): PartialAndTotalAdapter<A>;
 export function literals<A extends string, B extends string>(a: A, b: B): PartialAndTotalAdapter<A|B>;
 export function literals<A extends string, B extends string, C extends string>(a: A, b: B, c: C): PartialAndTotalAdapter<A|B|C>;
@@ -221,7 +221,7 @@ export function literals(): PartialAndTotalAdapter<string> {
 }
 
 
-/// adapter that succeeds always with the same result
+/// Adapter that succeeds always with the given result
 export function of<A extends Expr>(a: A): PartialAndTotalAdapter<A> {
   const applyTotal = () => some(a);
   const unapplyTotal = () => '';
@@ -231,7 +231,7 @@ export function of<A extends Expr>(a: A): PartialAndTotalAdapter<A> {
 }
 
 
-/// partial adapter
+/// Partial adapter
 export function partialAdapter<A>(applyPartial: (s: Option<string>) => Option<A>, unapplyPartial: (a: A) => Option<string>): PartialAdapter<A> {
   return new PartialAdapter<A>(applyPartial, unapplyPartial);
 }
@@ -264,7 +264,7 @@ function printCsv(values: Array<string>): string {
   return values.map(str => {
     let output = '';
     for (let i = 0; i < str.length; i++) {
-      switch(str[i]) {
+      switch (str[i]) {
         case '\\': output += '\\\\'; break;
         case ',': output += '\\,'; break;
         default: output += str[i]; break;
@@ -277,13 +277,13 @@ function printCsv(values: Array<string>): string {
 
 /// parse comma-separated string into an array
 function parseCsv(str: string): Array<string> {
-  if (str === '""') return [""];
+  if (str === '""') return [''];
   const output = [] as Array<string>;
   let escape = false;
   let cur = '';
   for (let i = 0;; i++) {
     if (i === str.length) { i !== 0 && output.push(cur); break; }
-    switch(str[i]) {
+    switch (str[i]) {
       case ',': escape ? (cur += ',', escape = false) : (output.push(cur), cur = ''); break;
       case '\\': escape ? (cur += '\\', escape = false) : escape = true; break;
       default: cur += str[i]; break;

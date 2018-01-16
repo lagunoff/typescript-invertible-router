@@ -2,11 +2,11 @@ import { Expr } from './internal/expr';
 
 
 /// adt
-export type Option<a> = None<a> | Some<a>
-export type Maybe<a> = Option<a>
+export type Option<a> = None<a> | Some<a>;
+export type Maybe<a> = Option<a>;
 
 
-/// instance method for convenience
+/// Instance method for convenience
 export class OptionBase<A> {
   readonly _A: A;
 
@@ -45,14 +45,14 @@ export class OptionBase<A> {
 }
 
   
-/// empty container
+/// Empty container
 export class None<A> extends OptionBase<A> {
   readonly _A: A;
   readonly tag: 'None' = 'None';
 }
 
 
-/// container with a value
+/// Container with a value
 export class Some<A> extends OptionBase<A> {
   readonly _A: A;
   readonly tag: 'Some' = 'Some';
@@ -62,10 +62,10 @@ export class Some<A> extends OptionBase<A> {
 }
 
 
-/// traverse an array
+/// Traverse an array
 export function traverse<A, B>(arr: Array<A>, f: (a: A) => Option<B>): Option<B[]> {
   const output = [] as B[];
-  for (let i in arr) {
+  for (const i in arr) {
     const option = f(arr[i]);
     switch (option.tag) {
       case 'None': return option as any;
@@ -76,7 +76,7 @@ export function traverse<A, B>(arr: Array<A>, f: (a: A) => Option<B>): Option<B[
 }
 
 
-/// aliases
+/// Aliases
 export const none = new None<any>();
 export function some<A extends Expr>(a: A): Option<A> { return new Some<A>(a); }
 export { some as of };

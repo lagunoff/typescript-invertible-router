@@ -9,7 +9,8 @@
   "typings": "lib/index.d.ts",
   "scripts": {
     "clean": "rm -rf lib/*",
-    "build": "rm -rf lib/* && tsc && cp src/internal/isequal* lib/internal"
+    "build": "rm -rf lib/* && tsc && cp src/internal/isequal* lib/internal",
+    "lint": "tslint --project tsconfig-tslint.json --type-check src/*.ts"
   },
   "license": "MIT",
   "repository": {
@@ -30,5 +31,10 @@
     "typescript",
     "routing",
     "react"
-  ]
+  ],
+  "devDependencies": {
+    "tslint": "^5.9.1",
+    "tslint-config-airbnb": "^5.4.2",
+    "typescript": "^2.6.2"
+  }
 }
