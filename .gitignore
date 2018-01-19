@@ -7,12 +7,7 @@
 /npm-debug.log
 /.dir-locals.el
 /yarn-errors.log
-/*.js
-/*.d.ts
-/src/**/*.js
-/src/**/*.d.ts
-!/src/internal/isequal.js
-!/src/internal/isequal.d.ts
 /tests/
 /examples/node_modules
+/scripts/node_modules
 /lib

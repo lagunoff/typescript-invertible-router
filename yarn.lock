@@ -2,6 +2,10 @@
 # yarn lockfile v1
 
 
+"@types/node@^9.3.0":
+  version "9.3.0"
+  resolved "https://registry.yarnpkg.com/@types/node/-/node-9.3.0.tgz#3a129cda7c4e5df2409702626892cb4b96546dd5"
+
 ansi-regex@^2.0.0:
   version "2.1.1"
   resolved "https://registry.yarnpkg.com/ansi-regex/-/ansi-regex-2.1.1.tgz#c3b33ab5ee360d86e0e628f0468ae7ef27d654df"
@@ -266,6 +270,12 @@ tsutils@^1.4.0:
 tsutils@^2.12.1, tsutils@^2.12.2:
   version "2.18.0"
   resolved "https://registry.yarnpkg.com/tsutils/-/tsutils-2.18.0.tgz#f97385709d348169002c12f6f5fd42c1df13b250"
+  dependencies:
+    tslib "^1.8.1"
+
+tsutils@^2.19.0:
+  version "2.19.0"
+  resolved "https://registry.yarnpkg.com/tsutils/-/tsutils-2.19.0.tgz#170a267c1df5ae046e902568ca3444a1a4dfcb3a"
   dependencies:
     tslib "^1.8.1"
 

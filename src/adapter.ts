@@ -3,18 +3,34 @@ import { Expr } from './internal/expr';
 import { Option, some, none, traverse } from './option';
 
 
-/// adapter instance methods
+// Base class for instance methods
 export class AdapterBase<A> {
   readonly _A: A;
 
-  /// withName
+  /**
+   * Give different name to parameter compared with the name of the field
+   * 
+   * ```ts
+   * const parser = r.path('/home').params({ snakeCase: r.nat.withName('snake_case') });
+   * console.log(parser.print({ snakeCase: 42 }));  // => "home?snake_case=42"
+   * ```
+   */
   withName(this: HasPartialAdapter<A>, name: string): NamedAdapter<A> {
     const $this = this;
     if ($this.tag === 'NamedAdapter') return new NamedAdapter(name, $this.adapter);
     return new NamedAdapter(name, $this);
   }
 
-  /// withDefault
+  /**
+   * Provide default value, new adapter will always succeed 
+   *
+   * ```ts
+   * const parser = r.path('shop/items').params({ search: r.string.withDefault(''), page: r.nat.withDefault(1) });
+   * console.log(parser.parse('/shop/items')); // => { search: "", page: 1 }
+   * console.log(parser.print({ search: 'apples', page: 2 })); // => "shop/items?search=apples&page=2"
+   * console.log(parser.print({ search: '', page: 1 })); // => "shop/items"
+   * ```
+   */
   withDefault(this: TotalAdapter<A>, defaultVal: A): TotalAdapter<A>;
   withDefault<B>(this: PartialAndTotalAdapter<A>, defaultVal: B): PartialAdapter<A|B>;
   withDefault<B>(this: PartialAdapter<A>, defaultVal: B): PartialAdapter<A|B>;
@@ -44,30 +60,44 @@ export class AdapterBase<A> {
     }
   }
 
-  /// dimap
-  dimap<B>(this: TotalAdapter<A>, f: (a: A) => B, g: (b: B) => A): TotalAdapter<B>;
-  dimap<B>(this: PartialAndTotalAdapter<A>, f: (a: A) => B, g: (b: B) => A): PartialAndTotalAdapter<B>;
-  dimap<B>(this: PartialAdapter<A>, f: (a: A) => B, g: (b: B) => A): PartialAdapter<B>;
-  dimap<B>(this: NamedAdapter<A>, f: (a: A) => B, g: (b: B) => A): NamedAdapter<B>;
-  dimap<B>(this: Adapter<A>, f: (a: A) => B, g: (b: B) => A): Adapter<B>;
-  dimap<B>(this: Adapter<A>, f: (a: A) => B, g: (b: B) => A): Adapter<B> {
+  /**
+   * Change type variable inside `Adapter`, similar to
+   * `Array.prototype.map`, but requires two functions
+   *
+   * ```ts
+   * const litAdapter = r.literals('one', 'two', 'three');
+   * const choiceAdapter = litAdapter.dimap(
+   *   n => ['one', 'two', 'three'].indexOf(n) + 1,
+   *   n => ['one', 'two', 'three'][n - 1] as any,
+   * );
+   * const parser = r.path('/quiz').params({ choice: choiceAdapter });
+   * console.log(parser.parse('/quiz?choice=three')); // => { choice: 3 }
+   * console.log(parser.print({ choice: 1 })); // => "quiz?choice=one"
+   * ```
+   */
+  dimap<B>(this: TotalAdapter<A>, f: (b: B) => A, g: (a: A) => B): TotalAdapter<B>;
+  dimap<B>(this: PartialAndTotalAdapter<A>, f: (b: B) => A, g: (a: A) => B): PartialAndTotalAdapter<B>;
+  dimap<B>(this: PartialAdapter<A>, f: (b: B) => A, g: (a: A) => B): PartialAdapter<B>;
+  dimap<B>(this: NamedAdapter<A>, f: (b: B) => A, g: (a: A) => B): NamedAdapter<B>;
+  dimap<B>(this: Adapter<A>, f: (b: B) => A, g: (a: A) => B): Adapter<B>;
+  dimap<B>(this: Adapter<A>, f: (b: B) => A, g: (a: A) => B): Adapter<B> {
     const $this = this;
     switch ($this.tag) {
       case 'TotalAdapter': {
-        const applyTotal = (s: string) => $this.applyTotal(s).map(f);
-        const unapplyTotal = (b: B) => $this.unapplyTotal(g(b));
+        const applyTotal = (s: string) => $this.applyTotal(s).map(g);
+        const unapplyTotal = (b: B) => $this.unapplyTotal(f(b));
         return new TotalAdapter(applyTotal, unapplyTotal);
       }
       case 'PartialAdapter': {
-        const applyPartial = (s: Option<string>) => $this.applyPartial(s).map(f);
-        const unapplyPartial = (b: B) => $this.unapplyPartial(g(b));
+        const applyPartial = (s: Option<string>) => $this.applyPartial(s).map(g);
+        const unapplyPartial = (b: B) => $this.unapplyPartial(f(b));
         return new PartialAdapter(applyPartial, unapplyPartial);
       }
       case 'PartialAndTotalAdapter': {
-        const applyTotal = (s: string) => $this.applyTotal(s).map(f);
-        const unapplyTotal = (b: B) => $this.unapplyTotal(g(b));
-        const applyPartial = (s: Option<string>) => $this.applyPartial(s).map(f);
-        const unapplyPartial = (b: B) => $this.unapplyPartial(g(b));
+        const applyTotal = (s: string) => $this.applyTotal(s).map(g);
+        const unapplyTotal = (b: B) => $this.unapplyTotal(f(b));
+        const applyPartial = (s: Option<string>) => $this.applyPartial(s).map(g);
+        const unapplyPartial = (b: B) => $this.unapplyPartial(f(b));
         return new PartialAndTotalAdapter(applyTotal, unapplyTotal, applyPartial, unapplyPartial);
       }
       case 'NamedAdapter': {
@@ -78,18 +108,10 @@ export class AdapterBase<A> {
 }
 
 
-/// PartialAdapter
-export class PartialAdapter<A> extends AdapterBase<A> {
-  readonly tag: 'PartialAdapter' = 'PartialAdapter';
-
-  constructor(
-    readonly applyPartial: (s: Option<string>) => Option<A>,
-    readonly unapplyPartial: (a: A) => Option<string>,
-  ) { super(); }
-}
-
-
-/// TotalAdapter
+/**
+ * `TotalAdapter<A>` describes mutual correspondence between `string`
+ * and `A`. These adapters are used in `r.array` and `r.segment`
+ */
 export class TotalAdapter<A> extends AdapterBase<A> {
   readonly tag: 'TotalAdapter' = 'TotalAdapter';
 
@@ -100,7 +122,21 @@ export class TotalAdapter<A> extends AdapterBase<A> {
 }
 
 
-/// PartialAndTotalAdapter
+/**
+ * `PartialAdapter<A>` describes mutual correspondence between
+ * `Option<string>` and `A`. These adapters are used in `r.param`
+ */
+export class PartialAdapter<A> extends AdapterBase<A> {
+  readonly tag: 'PartialAdapter' = 'PartialAdapter';
+
+  constructor(
+    readonly applyPartial: (s: Option<string>) => Option<A>,
+    readonly unapplyPartial: (a: A) => Option<string>,
+  ) { super(); }
+}
+
+
+/** Combination of `TotalAdapter<A>` and `PartialAdapter<A>` */
 export class PartialAndTotalAdapter<A> extends AdapterBase<A> {
   readonly tag: 'PartialAndTotalAdapter' = 'PartialAndTotalAdapter';
 
@@ -113,7 +149,7 @@ export class PartialAndTotalAdapter<A> extends AdapterBase<A> {
 }
 
 
-/// NamedAdapter
+/** Contains another adapter with its name */
 export class NamedAdapter<A> extends AdapterBase<A> {
   readonly tag: 'NamedAdapter' = 'NamedAdapter';
 
@@ -124,23 +160,21 @@ export class NamedAdapter<A> extends AdapterBase<A> {
 }
 
 
-/// aliases
+// Aliases
 export type Adapter<A> = PartialAdapter<A>|TotalAdapter<A>|PartialAndTotalAdapter<A>|NamedAdapter<A>;
 export type HasTotalAdapter<A> = TotalAdapter<A>|PartialAndTotalAdapter<A>;
 export type HasPartialAdapter<A> = PartialAdapter<A>|PartialAndTotalAdapter<A>|NamedAdapter<A>;
 
 
-/// strings
-const stringAdapter = new PartialAndTotalAdapter<string>(
-  some, // applyTotal
-  x => x, // unapplyTotal
+/** Strings */
+const stringAdapter = new PartialAdapter<string>(
   x => x, // applyPartial
   some, // unapplyPartial
 );
 export { stringAdapter as string };
 
 
-/// non-empty strings
+/** Non-empty strings */
 const nestringAdapter = new PartialAndTotalAdapter<string>(
   x => x !== '' ? some(x) : none, // applyTotal
   x => x, // unapplyTotal
@@ -150,7 +184,7 @@ const nestringAdapter = new PartialAndTotalAdapter<string>(
 export { nestringAdapter as nestring };
 
 
-/// natural numbers (0, 1, 2, ...)
+/** Natural numbers (0, 1, 2, ...) */
 const natAdapter = new PartialAndTotalAdapter<number>(
   str => { const i = parseInt(str); return !isNaN(i) && i >= 0 ? some(i) : none; }, // applyTotal
   String, // unapplyTotal
@@ -160,7 +194,7 @@ const natAdapter = new PartialAndTotalAdapter<number>(
 export { natAdapter as nat };
 
 
-/// integers (..., -1, 0, 1, 2, ...)
+/** Integers (..., -1, 0, 1, 2, ...) */
 const intAdapter = new PartialAndTotalAdapter<number>(
   str => { const i = parseInt(str); return !isNaN(i) ? some(i) : none; }, // applyTotal
   String, // unapplyTotal
@@ -170,7 +204,7 @@ const intAdapter = new PartialAndTotalAdapter<number>(
 export { intAdapter as int };
 
 
-/// dates as iso-8601
+/** Dates as iso-8601 */
 const iso8601Adapter = new PartialAndTotalAdapter<Date>(
   str => { const d = new Date(str); return isNaN(d.valueOf()) ? none : some(d); }, // applyTotal
   d => d.toISOString(), // unapplyTotal
@@ -180,7 +214,7 @@ const iso8601Adapter = new PartialAndTotalAdapter<Date>(
 export { iso8601Adapter as date };
 
 
-/// booleans
+/** Booleans */
 const booleanAdapter = new PartialAndTotalAdapter<boolean>(
   x => x === '' || x === 'false' || x === '0' || x === 'off' ? some(false) : some(true), // applyTotal
   x => x ? 'true' : 'false', // unapplyTotal
@@ -190,7 +224,16 @@ const booleanAdapter = new PartialAndTotalAdapter<boolean>(
 export { booleanAdapter as boolean };
 
 
-/// arrays
+/**
+ * Comma-separated list
+ * 
+ * ```ts
+ * const statusAdapter = r.literals('pending', 'scheduled', 'done');
+ * const parser = r.path('/todos').params({ statuses: r.array(statusAdapter) });
+ * type Route = typeof parser['_O']; // { statuses: Array<'pending'|'scheduled'|'done'> }
+ * console.log(parser.print({ statuses: ['pending', 'scheduled'] })); // => "todos?statuses=pending,scheduled"
+ * ```
+ */
 export function array<A>(adapter: HasTotalAdapter<A>): PartialAndTotalAdapter<A[]> {
   return new PartialAndTotalAdapter(
     str => traverse(parseCsv(str), x => adapter.applyTotal(x)), // applyTotal
@@ -201,7 +244,18 @@ export function array<A>(adapter: HasTotalAdapter<A>): PartialAndTotalAdapter<A[
 }
 
 
-/// One or more string literals
+/**
+ * Union of string literals
+ * 
+ * ```ts
+ * const fruitAdapter = r.literals('apple', 'orange', 'banana');
+ * const parser = r.path('/fruits').segment('fruit', fruitAdapter);
+ * type Route = typeof parser['_O']; // { fruit: 'apple'|'orange'|'banana' }
+ * console.log(parser.print({ fruit: 'apple' })); // => "fruits/apple"
+ * console.log(parser.parse('fruits/apple')); // => { fruit: "apple" }
+ * console.log(parser.parse('fruits/potato')); // => null
+ * ```
+ */
 export function literals<A extends string>(a: A): PartialAndTotalAdapter<A>;
 export function literals<A extends string, B extends string>(a: A, b: B): PartialAndTotalAdapter<A|B>;
 export function literals<A extends string, B extends string, C extends string>(a: A, b: B, c: C): PartialAndTotalAdapter<A|B|C>;
@@ -211,7 +265,7 @@ export function literals<array extends Array<Expr>>(array: array): PartialAndTot
 export function literals(): PartialAndTotalAdapter<string> {
   const literals: ArrayLike<string> = Array.isArray(arguments[0]) ? arguments[0] : arguments;
   const applyTotal = str => {
-    for (let i = 0; i < literals.length; i++) if (literals[i] === str) return some(str);
+    for (let i = 0; literals.length; i++) if (literals[i] === str) return some(str);
     return none;
   };
   const unapplyTotal = x => x;
@@ -221,7 +275,7 @@ export function literals(): PartialAndTotalAdapter<string> {
 }
 
 
-/// Adapter that succeeds always with the given result
+/** Create adapter that always succeeds with the given value */
 export function of<A extends Expr>(a: A): PartialAndTotalAdapter<A> {
   const applyTotal = () => some(a);
   const unapplyTotal = () => '';
@@ -231,19 +285,19 @@ export function of<A extends Expr>(a: A): PartialAndTotalAdapter<A> {
 }
 
 
-/// Partial adapter
+/** Constructor for `PartialAdapter` */
 export function partialAdapter<A>(applyPartial: (s: Option<string>) => Option<A>, unapplyPartial: (a: A) => Option<string>): PartialAdapter<A> {
   return new PartialAdapter<A>(applyPartial, unapplyPartial);
 }
 
 
-/// total adapter
+/** Constructor for `TotalAdapter` */
 export function totalAdapter<A>(applyTotal: (s: string) => Option<A>, unapplyTotal: (a: A) => string): TotalAdapter<A> {
   return new TotalAdapter<A>(applyTotal, unapplyTotal);
 }
 
 
-/// partial and total adapter
+/** Constructor for `PartialAndTotalAdapter` */
 export function partialAndTotalAdapter<A>(
   applyTotal: (s: string) => Option<A>,
   unapplyTotal: (a: A) => string,
@@ -254,11 +308,10 @@ export function partialAndTotalAdapter<A>(
 }
 
 
-// ---------------------------------------------------------------------------
-// helpers
+// -- Helpers --
 
 
-/// escape and join given array of strings
+// escape and join given array of strings
 function printCsv(values: Array<string>): string {
   if (values.length === 1 && values[0] === '') return '""';
   return values.map(str => {
@@ -275,7 +328,7 @@ function printCsv(values: Array<string>): string {
 }
 
 
-/// parse comma-separated string into an array
+// parse comma-separated string into an array
 function parseCsv(str: string): Array<string> {
   if (str === '""') return [''];
   const output = [] as Array<string>;
