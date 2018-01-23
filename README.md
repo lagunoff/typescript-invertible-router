@@ -1,6 +1,6 @@
 This library helps to implement routing in web-applications. It
 provides DSL for declaring routes, declarations then can be used for
-both matching urls and printing links to any location inside the
+both matching urls and printing links to any location inside
 application.
 
 ```ts
@@ -51,3 +51,8 @@ $ npm install typescript-invertible-router
     </tr>
   </tbody>
 </table>
+
+
+## Documentation
+
+[documentation](docs/index.md)

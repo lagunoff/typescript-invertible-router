@@ -18,15 +18,15 @@ export interface ParserState {
 /**
  * Deconstructed url. The first element of the tuple is the list of
  * path segments and the second is query string dictionary. This type
- * is used as the result type of `Parser.prototype.print`
+ * is used as the result type of `printImpl`
  */
 export type UrlChunks = [string[], Record<string, string>];
 
 
 /**
- * `Parser` also used as printer, represents mutual correspondence
- * between relative url strings and some intermediate data structure,
- * usually named `Route`
+ * `Parser` represents mutual correspondence between strings of
+ * relative urls and some intermediate data structure, usually named
+ * `Route`
  * 
  * ```ts
  * type Route = 
@@ -121,7 +121,8 @@ export class Parser<O, I=O, Extra={}> {
   }
   
   /**
-   * Join two parsers together. Result will be merged
+   * Join two parsers together. Underlying types will be combined through
+   * intersection. That is fields will be merged
    * 
    * ```ts
    * const blog = r.path('/blog').params({ page: r.nat.withDefault(1) });
@@ -175,8 +176,8 @@ export class Parser<O, I=O, Extra={}> {
 
 
 /**
- * Serialised methods of `Parser`. `Parser` instance contains
- * information about how it was constructed
+ * Serialised methods of `Parser`. Instances of class `Parser` contain
+ * information about how they were constructed
  */
 export type ParserMethod<O=any, I=O, E=any> =
   | { tag: 'Params', description: Record<string, HasPartialAdapter<any>> }

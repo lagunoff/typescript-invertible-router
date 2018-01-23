@@ -39,9 +39,9 @@
 
 ### class Parser
 
-`Parser` also used as printer, represents mutual correspondence
-between relative url strings and some intermediate data structure,
-usually named `Route`
+`Parser` represents mutual correspondence between strings of
+relative urls and some intermediate data structure, usually named
+`Route`
 
 ```ts
 type Route = 
@@ -121,7 +121,8 @@ console.log(parser.print({ offset: 20, limit: 20, search: "bana" })); // => "sho
 concat<That extends Parser<any, any, any>>(that: That): Parser<O & That["_O"], I & That["_I"], Extra & That["_Extra"]>;
 ```
 
-Join two parsers together. Result will be merged
+Join two parsers together. Underlying types will be combined through
+intersection. That is fields will be merged
 
 ```ts
 const blog = r.path('/blog').params({ page: r.nat.withDefault(1) });
@@ -222,7 +223,7 @@ console.log(parser.print({ tag: 'Third' })); // => "third"
 withName(this: HasPartialAdapter<A>, name: string): NamedAdapter<A>;
 ```
 
-Give different name to parameter compared with the name of the field
+Set different parameter name compared to the name of the field
 
 ```ts
 const parser = r.path('/home').params({ snakeCase: r.nat.withName('snake_case') });
@@ -239,7 +240,7 @@ withDefault<B>(this: NamedAdapter<A>, defaultVal: B): NamedAdapter<A | B>;
 withDefault<B>(this: Adapter<A>, defaultVal: B): Adapter<A | B>;
 ```
 
-Provide default value, new adapter will always succeed 
+Provide default value, new adapter will always succeed
 
 ```ts
 const parser = r.path('shop/items').params({ search: r.string.withDefault(''), page: r.nat.withDefault(1) });
@@ -288,7 +289,7 @@ Combination of `TotalAdapter<A>` and `PartialAdapter<A>`
 
 ### class NamedAdapter
 
-Contains another adapter with its name 
+Contains another adapter and its name 
 
 ### array
 
@@ -397,7 +398,7 @@ Unwrap value by providing result for `None` case
 
 ### class None
 
-Class which instances denote absence of value, similar to `null` and
+Class which instances represent absence of value, similar to `null` and
 `undefined`
 
 ### class Some

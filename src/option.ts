@@ -1,7 +1,7 @@
 import { Expr } from './internal/expr';
 
 
-// adt
+// Aliases
 export type Option<a> = None<a> | Some<a>;
 export type Maybe<a> = Option<a>;
 
@@ -45,7 +45,7 @@ export class OptionBase<A> {
 
   
 /**
- * Class which instances denote absence of value, similar to `null` and
+ * Class which instances represent absence of value, similar to `null` and
  * `undefined`
  */
 export class None<A> extends OptionBase<A> {

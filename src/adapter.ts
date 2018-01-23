@@ -3,12 +3,12 @@ import { Expr } from './internal/expr';
 import { Option, some, none, traverse } from './option';
 
 
-// Base class for instance methods
+// Base class with instance methods
 export class AdapterBase<A> {
   readonly _A: A;
 
   /**
-   * Give different name to parameter compared with the name of the field
+   * Set different parameter name compared to the name of the field
    * 
    * ```ts
    * const parser = r.path('/home').params({ snakeCase: r.nat.withName('snake_case') });
@@ -22,7 +22,7 @@ export class AdapterBase<A> {
   }
 
   /**
-   * Provide default value, new adapter will always succeed 
+   * Provide default value, new adapter will always succeed
    *
    * ```ts
    * const parser = r.path('shop/items').params({ search: r.string.withDefault(''), page: r.nat.withDefault(1) });
@@ -77,7 +77,7 @@ export class AdapterBase<A> {
    */
   dimap<B>(this: TotalAdapter<A>, f: (a: A) => B, g: (b: B) => A): TotalAdapter<B>;
   dimap<B>(this: PartialAndTotalAdapter<A>, f: (a: A) => B, g: (b: B) => A): PartialAndTotalAdapter<B>;
-  dimap<B>(this: PartialAdapter<A>, f: (a: A) => B, g: (b: B) => A, ): PartialAdapter<B>;
+  dimap<B>(this: PartialAdapter<A>, f: (a: A) => B, g: (b: B) => A): PartialAdapter<B>;
   dimap<B>(this: NamedAdapter<A>, f: (a: A) => B, g: (b: B) => A): NamedAdapter<B>;
   dimap<B>(this: Adapter<A>, f: (a: A) => B, g: (b: B) => A): Adapter<B>;
   dimap<B>(this: Adapter<A>, f: (a: A) => B, g: (b: B) => A): Adapter<B> {
@@ -149,7 +149,7 @@ export class PartialAndTotalAdapter<A> extends AdapterBase<A> {
 }
 
 
-/** Contains another adapter with its name */
+/** Contains another adapter and its name */
 export class NamedAdapter<A> extends AdapterBase<A> {
   readonly tag: 'NamedAdapter' = 'NamedAdapter';
 
