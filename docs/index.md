@@ -212,6 +212,8 @@ console.log(parser.parse('/second')); // => { tag: "Second" }
 console.log(parser.print({ tag: 'Third' })); // => "third"
 ```
 
+
+
 ## src/adapter.ts
 
 ### AdapterBase.prototype.withName
@@ -249,11 +251,11 @@ console.log(parser.print({ search: '', page: 1 })); // => "shop/items"
 ### AdapterBase.prototype.dimap
 
 ```
-dimap<B>(this: TotalAdapter<A>, f: (b: B) => A, g: (a: A) => B): TotalAdapter<B>;
-dimap<B>(this: PartialAndTotalAdapter<A>, f: (b: B) => A, g: (a: A) => B): PartialAndTotalAdapter<B>;
-dimap<B>(this: PartialAdapter<A>, f: (b: B) => A, g: (a: A) => B): PartialAdapter<B>;
-dimap<B>(this: NamedAdapter<A>, f: (b: B) => A, g: (a: A) => B): NamedAdapter<B>;
-dimap<B>(this: Adapter<A>, f: (b: B) => A, g: (a: A) => B): Adapter<B>;
+dimap<B>(this: TotalAdapter<A>, f: (a: A) => B, g: (b: B) => A): TotalAdapter<B>;
+dimap<B>(this: PartialAndTotalAdapter<A>, f: (a: A) => B, g: (b: B) => A): PartialAndTotalAdapter<B>;
+dimap<B>(this: PartialAdapter<A>, f: (a: A) => B, g: (b: B) => A): PartialAdapter<B>;
+dimap<B>(this: NamedAdapter<A>, f: (a: A) => B, g: (b: B) => A): NamedAdapter<B>;
+dimap<B>(this: Adapter<A>, f: (a: A) => B, g: (b: B) => A): Adapter<B>;
 ```
 
 Change type variable inside `Adapter`, similar to
@@ -357,6 +359,8 @@ function partialAndTotalAdapter<A>(applyTotal: (s: string) => Option<A>, unapply
 
 Constructor for `PartialAndTotalAdapter` 
 
+
+
 ## src/option.ts
 
 ### OptionBase.prototype.map
@@ -415,3 +419,5 @@ const divisors2 = [0, 1, 2, 3];
 console.log(traverse(divisors1, b => safeDiv(10, b))); // => Some { value: [...] }
 console.log(traverse(divisors2, b => safeDiv(10, b))); // => None { }
 ```
+
+
