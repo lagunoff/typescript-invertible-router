@@ -75,29 +75,29 @@ export class AdapterBase<A> {
    * console.log(parser.print({ choice: 1 })); // => "quiz?choice=one"
    * ```
    */
-  dimap<B>(this: TotalAdapter<A>, f: (b: B) => A, g: (a: A) => B): TotalAdapter<B>;
-  dimap<B>(this: PartialAndTotalAdapter<A>, f: (b: B) => A, g: (a: A) => B): PartialAndTotalAdapter<B>;
-  dimap<B>(this: PartialAdapter<A>, f: (b: B) => A, g: (a: A) => B): PartialAdapter<B>;
-  dimap<B>(this: NamedAdapter<A>, f: (b: B) => A, g: (a: A) => B): NamedAdapter<B>;
-  dimap<B>(this: Adapter<A>, f: (b: B) => A, g: (a: A) => B): Adapter<B>;
-  dimap<B>(this: Adapter<A>, f: (b: B) => A, g: (a: A) => B): Adapter<B> {
+  dimap<B>(this: TotalAdapter<A>, f: (a: A) => B, g: (b: B) => A): TotalAdapter<B>;
+  dimap<B>(this: PartialAndTotalAdapter<A>, f: (a: A) => B, g: (b: B) => A): PartialAndTotalAdapter<B>;
+  dimap<B>(this: PartialAdapter<A>, f: (a: A) => B, g: (b: B) => A, ): PartialAdapter<B>;
+  dimap<B>(this: NamedAdapter<A>, f: (a: A) => B, g: (b: B) => A): NamedAdapter<B>;
+  dimap<B>(this: Adapter<A>, f: (a: A) => B, g: (b: B) => A): Adapter<B>;
+  dimap<B>(this: Adapter<A>, f: (a: A) => B, g: (b: B) => A): Adapter<B> {
     const $this = this;
     switch ($this.tag) {
       case 'TotalAdapter': {
-        const applyTotal = (s: string) => $this.applyTotal(s).map(g);
-        const unapplyTotal = (b: B) => $this.unapplyTotal(f(b));
+        const applyTotal = (s: string) => $this.applyTotal(s).map(f);
+        const unapplyTotal = (b: B) => $this.unapplyTotal(g(b));
         return new TotalAdapter(applyTotal, unapplyTotal);
       }
       case 'PartialAdapter': {
-        const applyPartial = (s: Option<string>) => $this.applyPartial(s).map(g);
-        const unapplyPartial = (b: B) => $this.unapplyPartial(f(b));
+        const applyPartial = (s: Option<string>) => $this.applyPartial(s).map(f);
+        const unapplyPartial = (b: B) => $this.unapplyPartial(g(b));
         return new PartialAdapter(applyPartial, unapplyPartial);
       }
       case 'PartialAndTotalAdapter': {
-        const applyTotal = (s: string) => $this.applyTotal(s).map(g);
-        const unapplyTotal = (b: B) => $this.unapplyTotal(f(b));
-        const applyPartial = (s: Option<string>) => $this.applyPartial(s).map(g);
-        const unapplyPartial = (b: B) => $this.unapplyPartial(f(b));
+        const applyTotal = (s: string) => $this.applyTotal(s).map(f);
+        const unapplyTotal = (b: B) => $this.unapplyTotal(g(b));
+        const applyPartial = (s: Option<string>) => $this.applyPartial(s).map(f);
+        const unapplyPartial = (b: B) => $this.unapplyPartial(g(b));
         return new PartialAndTotalAdapter(applyTotal, unapplyTotal, applyPartial, unapplyPartial);
       }
       case 'NamedAdapter': {
@@ -265,7 +265,7 @@ export function literals<array extends Array<Expr>>(array: array): PartialAndTot
 export function literals(): PartialAndTotalAdapter<string> {
   const literals: ArrayLike<string> = Array.isArray(arguments[0]) ? arguments[0] : arguments;
   const applyTotal = str => {
-    for (let i = 0; literals.length; i++) if (literals[i] === str) return some(str);
+    for (let i = 0; i < literals.length; i++) if (literals[i] === str) return some(str);
     return none;
   };
   const unapplyTotal = x => x;
