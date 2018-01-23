@@ -1,6 +1,6 @@
 {
   "name": "typescript-invertible-router",
-  "version": "0.0.4",
+  "version": "0.1.0",
   "files": [
     "lib",
     "README.md"
