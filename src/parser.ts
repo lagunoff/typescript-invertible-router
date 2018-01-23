@@ -91,9 +91,6 @@ export class Parser<O, I=O, Extra={}> {
   /**
    * Parse one path segment
    * 
-   * @param key Field name in the data structure
-   * @param adapter Adapter for handling segment
-   * 
    * ```ts
    * const categoryAdapter = r.literals('electronics', 'art', 'music');
    * const parser = r.path('/category').segment('category', categoryAdapter).segment('page', r.nat);
@@ -101,6 +98,8 @@ export class Parser<O, I=O, Extra={}> {
    * console.log(parser.parse('/category/art')); // => null
    * console.log(parser.print({ category: 'music', page: 1 })); // => "category/music/1"
    * ```
+   * @param key Field name in the data structure
+   * @param adapter Adapter for handling segment
    */
   segment<K extends string, B>(key: K, adapter: HasTotalAdapter<B>): Parser<O & { [k in K]: B }, I & { [k in K]: B }, Extra> {
     return new Parser(this.methods.concat({ tag: 'Segment', key, adapter } as ParserMethod)) as any;
@@ -109,14 +108,13 @@ export class Parser<O, I=O, Extra={}> {
   /**
    * Add query string parameters
    * 
-   * @param params Object where keys are parameter names and values
-   * are adapters
-   * 
    * ```ts
    * const parser = r.path('/shop/items').params({ offset: r.nat.withDefault(0), limit: r.nat.withDefault(20), search: r.string.withDefault('') });
    * console.log(parser.parse('/shop/items')); // => { offset: 0, limit: 20, search: "" }
    * console.log(parser.print({ offset: 20, limit: 20, search: "bana" })); // => "shop/items?offset=20&search=bana"
    * ```
+   * @param params Object where keys are parameter names and values
+   * are adapters
    */
   params<Keys extends Record<string, HasPartialAdapter<any>>>(params: Keys): Parser<O & { [k in keyof Keys]: Keys[k]['_A'] }, I & { [k in keyof Keys]: Keys[k]['_A'] }, Extra> {
     return new Parser(this.methods.concat({ tag: 'Params', description: params } as ParserMethod)) as any;
@@ -125,14 +123,13 @@ export class Parser<O, I=O, Extra={}> {
   /**
    * Join two parsers together. Result will be merged
    * 
-   * @param that Another `Parser`
-   * 
    * ```ts
    * const blog = r.path('/blog').params({ page: r.nat.withDefault(1) });
    * const parser = r.tag('Blog').path('/website').concat(blog);
    * console.log(parser.parse('/website/blog')); // => { tag: "Blog", page: 1 }
    * console.log(parser.print({ tag: "Blog", page: 10 })); // => "website/blog?page=10"
    * ```
+   * @param that Another `Parser`
    */
   concat<That extends Parser<any, any, any>>(that: That): Parser<O & That['_O'], I & That['_I'], Extra & That['_Extra']> {
     return new Parser(this.methods.concat(that.methods));
@@ -142,14 +139,13 @@ export class Parser<O, I=O, Extra={}> {
    * Join two parsers together. Result of the second will be stored in
    * the field `key`
    * 
-   * @param that Another `Parser`
-   * 
    * ```ts
    * const blog = r.path('/blog').params({ page: r.nat.withDefault(1) });
    * const parser = r.tag('Blog').path('/website').concat(blog);
    * console.log(parser.parse('/website/blog')); // => { tag: "Blog", page: 1 }
    * console.log(parser.print({ tag: "Blog", page: 10 })); // => "website/blog?page=10"
    * ```
+   * @param that Another `Parser`
    */
   embed<K extends string, That extends Parser<any, any, any>>(key: K, that: That): Parser<O & { [k in K]: That['_O'] }, I & { [k in K]: That['_I'] }, Extra> {
     return new Parser(this.methods.concat({ tag: 'Embed', key, parser: that } as ParserMethod)) as any;
@@ -161,8 +157,6 @@ export class Parser<O, I=O, Extra={}> {
    * convenient way to store related information and keep
    * configuration in one place.
    * 
-   * @param payload Object that will be merged with output
-   * 
    * ```ts
    * const parser = r.oneOf(
    *   r.tag('Shop').path('/shop').extra({ component: require('./Shop') }),
@@ -172,6 +166,7 @@ export class Parser<O, I=O, Extra={}> {
    * console.log(parser.parse('/contacts')); // => { tag: "Contacts", component: Shop { ... } }
    * console.log(parser.print({ tag: "Contacts" })); // => "contacts"
    * ```
+   * @param payload Object that will be merged with output
    */
   extra<E>(payload: E): Parser<O & E, I, Extra & E> {
     return new Parser(this.methods.concat({ tag: 'Extra', payload } as ParserMethod)) as any;

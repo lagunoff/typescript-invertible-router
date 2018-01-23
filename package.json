@@ -10,7 +10,8 @@
   "scripts": {
     "clean": "rm -rf lib/*",
     "build": "rm -rf lib/* && tsc && cp src/internal/isequal* lib/internal",
-    "lint": "tslint --project tsconfig-tslint.json --type-check src/*.ts"
+    "lint": "tslint --project tsconfig-tslint.json --type-check src/*.ts",
+    "docs:build": "ts-node scripts/gendocs.ts src/index.ts > docs/index.md"
   },
   "license": "MIT",
   "repository": {
@@ -34,8 +35,12 @@
   ],
   "devDependencies": {
     "@types/node": "^9.3.0",
+    "ts-node": "^4.1.0",
     "tslint": "^5.9.1",
     "tslint-config-airbnb": "^5.4.2",
     "typescript": "^2.6.2"
+  },
+  "dependencies": {
+    "lodash": "^4.17.4"
   }
 }
