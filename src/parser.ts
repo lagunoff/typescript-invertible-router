@@ -8,11 +8,14 @@ import { HasTotalAdapter, HasPartialAdapter } from './adapter';
 
 
 /** Internal parser state */
-export interface ParserState {
-  unvisited: string[];
-  visited: string[];
-  params: Record<string, string>;
-}
+export type ParserState = [
+  string[], // segments
+  Record<string, string>, // params
+  number // segment index
+];
+const SEGMENTS = 0;
+const PARAMS = 1;
+const IDX = 2;
 
 
 /**
@@ -21,6 +24,33 @@ export interface ParserState {
  * is used as the result type of `printImpl`
  */
 export type UrlChunks = [string[], Record<string, string>];
+
+
+/**
+ * Serialised methods of `Parser`. Instances of class `Parser` contain
+ * information about how they were constructed
+ */
+export type ParserMethod<O=any, I=O, E=any> =
+  | { tag: 'Params', description: Record<string, HasPartialAdapter<any>> }
+  | { tag: 'Segment', key: string, adapter: HasTotalAdapter<any> }
+  | { tag: 'Path', segments: string[] }
+  | { tag: 'Embed', key: string, parser: Parser<any, any, any> }
+  | { tag: 'OneOf', description: Record<string, Parser<any, any, any>> }
+  | { tag: 'Extra', payload: E }
+  | { tag: 'Custom', parse(s: ParserState): Array<[O, ParserState]>, print(a: I): UrlChunks };
+
+
+export interface ParserRules {
+  '': ParserMethod[];
+  [k: string]: ParserMethod[]|ParserRules;
+}
+
+
+/** Options for `parseImpl` */
+export enum ParseOptions {
+  OnlyFirstMatch = 0x1 << 0,
+  AllSegmentsConsumed = 0x1 << 1,
+}
 
 
 /**
@@ -62,7 +92,8 @@ export class Parser<O, I=O, Extra={}> {
   parse(url: string): O|null {
     const results = parseImpl(this.methods, prepareState(url));
     for (const [route, state] of results) {
-      if (state.unvisited.length === 0) return route;
+      const [segments, params, idx] = state;
+      if (idx === segments.length) return route;
     }
     return null;
   }
@@ -84,7 +115,7 @@ export class Parser<O, I=O, Extra={}> {
    * ```
    */
   path(path: string): Parser<O, I, Extra> {
-    const segments = path.split('/').filter(x => x !== '').map(prettyUriEncode);
+    const segments = path.split('/').filter(x => x !== '');
     return new Parser(this.methods.concat({ tag: 'Path', segments } as ParserMethod));
   }
   
@@ -175,20 +206,6 @@ export class Parser<O, I=O, Extra={}> {
 }
 
 
-/**
- * Serialised methods of `Parser`. Instances of class `Parser` contain
- * information about how they were constructed
- */
-export type ParserMethod<O=any, I=O, E=any> =
-  | { tag: 'Params', description: Record<string, HasPartialAdapter<any>> }
-  | { tag: 'Segment', key: string, adapter: HasTotalAdapter<any> }
-  | { tag: 'Path', segments: string[] }
-  | { tag: 'Embed', key: string, parser: Parser<any, any, any> }
-  | { tag: 'OneOf', description: Record<string, Parser<any, any, any>> }
-  | { tag: 'Extra', payload: E }
-  | { tag: 'Custom', parse(s: ParserState): Array<[O, ParserState]>, print(a: I): UrlChunks };
-
-
 /** Tag route with a uniq key in order to use in `oneOf` */
 export function tag<T extends string>(tag: T): Parser<{ tag: T }, { tag: T }, { tag: T }> {
   return new Parser([{ tag: 'Extra', payload: { tag } }]);
@@ -197,7 +214,7 @@ export function tag<T extends string>(tag: T): Parser<{ tag: T }, { tag: T }, { 
 
 /** @see `Parser.prototype.path` */
 export function path(segmentsStr: string): Parser<{}, {}, {}> {
-  const segments = segmentsStr.split('/').filter(x => x !== '').map(prettyUriEncode);
+  const segments = segmentsStr.split('/').filter(x => x !== '');
   return new Parser([{ tag: 'Path', segments }]);
 }
 
@@ -280,13 +297,13 @@ export function oneOf(): OneOfParser<any> {
 // construct state from relative url
 export function prepareState(url: string): ParserState {
   const [path, query] = url.split('?');
-  const unvisited = path.split('/').filter(x => x !== '');
+  const unvisited = path.split('/').filter(x => x !== '').map(decodeURIComponent);
   const params = (query || '').split('&').filter(x => x !== '').reduce<Record<string, string>>((acc, pair) => { 
     const [key, value] = pair.split('=').map(decodeURIComponent);
     acc[key] = value || '';
     return acc;
   }, {}); // tslint:disable-line:align
-  return { unvisited, visited: [], params };
+  return [unvisited, params, 0];
 }
 
 
@@ -297,81 +314,124 @@ export function assembleChunks(chunks: UrlChunks): string {
     const [k, v] = [prettyUriEncode(key), prettyUriEncode(params[key])];
     return k + (v ? '=' + v : '');
   }).join('&');
-  return segments.join('/') + (query ? '?' + query : '');
+  return segments.map(prettyUriEncode).join('/') + (query ? '?' + query : '');
 }
 
 
 // do actual parsing
-export function parseImpl<O>(methods: ParserMethod<O, any, any>[], state: ParserState): Array<[O, ParserState]> {
-  function parseHelper<O>(method: ParserMethod, state: ParserState): Array<[O, ParserState]> {
+export function parseImpl<O>(methods: ParserMethod<O, any, any>[], state: ParserState, options = ParseOptions.AllSegmentsConsumed): Array<[O, ParserState]> {
+  if (methods.length === 0) return [];
+  const results: any[] = [[{}, state.slice()]];
+  
+  for (const method of methods) {
+    if (method.tag === 'Params' || method.tag === 'Segment' || method.tag === 'Path' || method.tag === 'Extra') {
+      let i = 0;
+      while (i >= 0 && i < results.length) {
+        if (!parseSingle(method, results[i][0], results[i][1])) {
+          results.splice(i, 1);
+        } else i++;
+      }
+      if (results.length === 0) return results;
+    } else {
+      let i = 0;
+      while (i >= 0 && i < results.length) {
+        const replacements = parseMultiple(method, results[i][0], results[i][1]);
+        results.splice(i, 1, ...replacements);
+        i += replacements.length;
+      } 
+      if (results.length === 0) return results;      
+    }
+  }
+  
+  return results;
+
+  type SingleOutput = 'Params'|'Segment'|'Path'|'Extra';
+  type MultipleOutput = 'Embed'|'OneOf'|'Custom';
+
+  function parseSingle<O>(method: ParserMethod, output: O, state: ParserState): boolean {
+    const [segments, params, idx] = state;
     switch (method.tag) {
       case 'Params': {
-        const output = {} as O;
         for (const key in method.description) {
           if (!method.description.hasOwnProperty(key)) continue;
           const item = method.description[key];
           const adapter = item.tag === 'NamedAdapter' ? item.adapter : item;
           const paramKey = item.tag === 'NamedAdapter' ? item.name : key;
-          const maybeValue = adapter.applyPartial(state.params.hasOwnProperty(paramKey) ? some(state.params[paramKey]) : none);
-          if (maybeValue.tag === 'None') return [];
+          const maybeValue = adapter.applyPartial(params.hasOwnProperty(paramKey) ? some(params[paramKey]) : none);
+          if (maybeValue.tag === 'None') return false;
           output[key] = maybeValue.value;
         }
-        return [[output, state]];      
+        return true;
       }
       case 'Segment': {
-        const output = {} as O;
-        if (state.unvisited.length === 0) return [];
-        const segment = decodeURIComponent(state.unvisited[0]);
+        if (idx === segments.length) return false;
+        const segment = segments[idx];
         const result = method.adapter.applyTotal(segment);
-        if (result.tag === 'None') return [];
+        if (result.tag === 'None') return false;
         output[method.key] = result.value;
-        const unvisited = state.unvisited.slice(1);
-        const visited = state.visited.concat(segment);
-        return [[output, { unvisited, visited, params: state.params }]];   
+        state[IDX]++;
+        return true;
       }
       case 'Path': {
-        const output = {} as O;
         let mathes = true;
-        for (const j in method.segments) if (state.unvisited[j] !== method.segments[j]) { mathes = false; break; }
-        if (!mathes) return [];
-        const unvisited = state.unvisited.slice(0);
-        const visited = state.visited.concat(unvisited.splice(0, method.segments.length));
-        return [[output, { unvisited, visited, params: state.params }]];
+        for (let i = 0; i < method.segments.length; i++) if (segments[idx + i] !== method.segments[i]) { mathes = false; break; }
+        if (!mathes) return false;
+        state[IDX] += method.segments.length;
+        return true;
       }
+      case 'Extra': {
+        Object.assign(output, method.payload);
+        return true;
+      }
+    }
+    // unreachable code
+    return false; 
+  }
+
+  
+  function parseMultiple<O>(method: ParserMethod, prevOutput: O, prevState: ParserState): Array<[O, ParserState]> {
+    const [segments, params, idx] = prevState;
+    switch (method.tag) {
       case 'OneOf': {
         const output: any[] = [];
         for (const key in method.description) {
           if (!method.description.hasOwnProperty(key)) continue;
-          for (const pair of parseImpl(method.description[key].methods, state)) {
+          for (const pair of parseImpl(method.description[key].methods, state, options)) {
+            Object.assign(pair[0], prevOutput);
 	    output.push(pair);
           }
         }
         return output;
       }
-      case 'Extra': {
-        return [[method.payload as O, state]];
-      }
       case 'Custom': {
-        return method.parse(state);
+        const output = method.parse(prevState);
+        for (const i in output) {
+          Object.assign(output[i][0], prevOutput);
+        }
+        return output;
       }
       case 'Embed': {
-        return parseImpl(method.parser.methods, state).map(([r, s]) => [{ [method.key]: r }, s] as any);
+        const output = parseImpl(method.parser.methods, prevState, options);
+        for (const i in output) {
+          output[i][0] = Object.assign({ [method.key]: output[i][0] }, prevOutput);
+        }
+        return output;
       }
     }
+    // unreachable code
+    return [];     
   }
-
-  if (methods.length === 0) return [];
-  const loop = (i: number, route: any, state: ParserState) => {
-    const output = parseHelper(methods[i], state).map(([r, s]) => [Object.assign({}, route, r), s]);
-    if (i < methods.length - 1) return Array.prototype.concat.apply([], output.map(([r, s]) => loop(i + 1, r, s)));
-    return output;
-  };
-  return loop(0, {}, state);  
 }
 
 
 // do printing
 export function printImpl<I>(methods: ParserMethod<any, I, any>[], route: I): UrlChunks {
+  return methods.map(x => printHelper(x, route)).reduce((acc, [segments, params]: any) => {
+    for (const segment of segments) acc[0].push(segment);
+    for (const key in params) params.hasOwnProperty(key) && (acc[1][key] = params[key]);
+    return acc;
+  }, [[], {}]); // tslint:disable-line:align
+
   function printHelper(method: ParserMethod, route: I): UrlChunks {
     switch (method.tag) {
       case 'Params': {
@@ -388,7 +448,7 @@ export function printImpl<I>(methods: ParserMethod<any, I, any>[], route: I): Ur
       }
       case 'Segment': {
         const segment = method.adapter.unapplyTotal(route[method.key]);
-        return [[prettyUriEncode(segment)], {}];
+        return [[segment], {}];
       }
       case 'Path': {
         return [method.segments, {}];
@@ -406,17 +466,34 @@ export function printImpl<I>(methods: ParserMethod<any, I, any>[], route: I): Ur
         return printImpl(method.parser.methods, route[method.key]);
       }
     }
-  }
-  
-  return methods.map(x => printHelper(x, route)).reduce((acc, [segments, params]: any) => {
-    for (const segment of segments) acc[0].push(segment);
-    for (const key in params) params.hasOwnProperty(key) && (acc[1][key] = params[key]);
-    return acc;
-  }, [[], {}]); // tslint:disable-line:align
+  }  
 }
 
 
 // -- helpers --
+
+
+// iterable thrugh `ParserRules`
+function forEachMethod(rules: ParserRules, visitor: (val: ParserMethod, prefix: ReadonlyArray<string>) => boolean|void): boolean {
+  return forEachMethodHelper(rules, []);
+
+  function forEachMethodHelper(rules: ParserRules, prefix: string[]): boolean {
+    let allVisited = true;
+    outer_for: for (const k in rules) {
+      const methodsOfRules = rules[k];
+      k !== '' && prefix.push(k);
+      if (Array.isArray(methodsOfRules)) {
+        for (const method of methodsOfRules) {
+          if (visitor(method, []) === false) { allVisited = false; break outer_for; }
+        }
+      } else {
+        if (forEachMethodHelper(methodsOfRules, prefix) === false) { allVisited = false; break outer_for; }
+      }
+      k !== '' && prefix.pop();
+    }
+    return allVisited;
+  }
+}
 
 
 // custom uri encoding
