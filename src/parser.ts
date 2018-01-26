@@ -1,3 +1,4 @@
+// tslint:disable:object-literal-key-quotes
 import { some, none } from './option';
 import { HasTotalAdapter, HasPartialAdapter } from './adapter';
 
@@ -9,13 +10,18 @@ import { HasTotalAdapter, HasPartialAdapter } from './adapter';
 
 /** Internal parser state */
 export type ParserState = [
-  string[], // segments
-  Record<string, string>, // params
-  number // segment index
+  string[],               // SEGMENTS
+  Record<string, string>, // PARAMS
+  number                  // IDX
 ];
-const SEGMENTS = 0;
-const PARAMS = 1;
-const IDX = 2;
+
+
+export enum ParserStateFields {
+  SEGMENTS = 0,
+  PARAMS = 1,
+  IDX = 2,
+}
+const { SEGMENTS, PARAMS, IDX } = ParserStateFields;
 
 
 /**
@@ -31,18 +37,18 @@ export type UrlChunks = [string[], Record<string, string>];
  * information about how they were constructed
  */
 export type ParserMethod<O=any, I=O, E=any> =
-  | { tag: 'Params', description: Record<string, HasPartialAdapter<any>> }
+  | { tag: 'Params', tags: Record<string, HasPartialAdapter<any>> }
   | { tag: 'Segment', key: string, adapter: HasTotalAdapter<any> }
   | { tag: 'Path', segments: string[] }
   | { tag: 'Embed', key: string, parser: Parser<any, any, any> }
-  | { tag: 'OneOf', description: Record<string, Parser<any, any, any>> }
+  | { tag: 'OneOf', tags: Record<string, ParserMethod[]>, prefixTrie?: PrefixTrie }
   | { tag: 'Extra', payload: E }
   | { tag: 'Custom', parse(s: ParserState): Array<[O, ParserState]>, print(a: I): UrlChunks };
 
 
-export interface ParserRules {
-  '': ParserMethod[];
-  [k: string]: ParserMethod[]|ParserRules;
+export interface PrefixTrie {
+  '': ParserMethod[][];
+  [k: string]: ParserMethod[][]|PrefixTrie; // actually only PrefixTrie
 }
 
 
@@ -51,6 +57,7 @@ export enum ParseOptions {
   OnlyFirstMatch = 0x1 << 0,
   AllSegmentsConsumed = 0x1 << 1,
 }
+const { OnlyFirstMatch, AllSegmentsConsumed } = ParseOptions;
 
 
 /**
@@ -148,7 +155,7 @@ export class Parser<O, I=O, Extra={}> {
    * are adapters
    */
   params<Keys extends Record<string, HasPartialAdapter<any>>>(params: Keys): Parser<O & { [k in keyof Keys]: Keys[k]['_A'] }, I & { [k in keyof Keys]: Keys[k]['_A'] }, Extra> {
-    return new Parser(this.methods.concat({ tag: 'Params', description: params } as ParserMethod)) as any;
+    return new Parser(this.methods.concat({ tag: 'Params', tags: params } as ParserMethod)) as any;
   }
   
   /**
@@ -232,8 +239,8 @@ export function extra<E>(payload: E): Parser<E, {}, E> {
 
 
 /** @see `Parser.prototype.params` */
-export function params<Keys extends Record<string, HasPartialAdapter<any>>>(description: Keys): Parser<{ [k in keyof Keys]: Keys[k]['_A'] }, { [k in keyof Keys]: Keys[k]['_A'] }, {}> {
-  return new Parser([{ tag: 'Params', description }]);
+export function params<Keys extends Record<string, HasPartialAdapter<any>>>(tags: Keys): Parser<{ [k in keyof Keys]: Keys[k]['_A'] }, { [k in keyof Keys]: Keys[k]['_A'] }, {}> {
+  return new Parser([{ tag: 'Params', tags }]);
 }
 
 
@@ -284,13 +291,15 @@ export function oneOf(): OneOfParser<any> {
     return null;
   }
   const parsers: ArrayLike<T> = Array.isArray(arguments[0]) ? arguments[0] : arguments;
-  const description: Record<string, T> = {};
+  const tags: Record<string, ParserMethod[]> = {};
   for (let i = 0; i < parsers.length; i++) {
     const tag = getTag(parsers[i]);
-    if (tag) description[tag] = parsers[i];
+    if (tag) tags[tag] = parsers[i].methods.slice();
     else throw new Error(`oneOf: argument #${i + 1} wasn't provided with a tag`);
   }
-  return new Parser([{ tag: 'OneOf', description }]);
+
+  const prefixTrie = buildTrie(tags);
+  return new Parser([{ tag: 'OneOf', tags, prefixTrie }]);
 }
 
 
@@ -319,7 +328,7 @@ export function assembleChunks(chunks: UrlChunks): string {
 
 
 // do actual parsing
-export function parseImpl<O>(methods: ParserMethod<O, any, any>[], state: ParserState, options = ParseOptions.AllSegmentsConsumed): Array<[O, ParserState]> {
+export function parseImpl<O>(methods: ParserMethod<O, any>[], state: ParserState, options = AllSegmentsConsumed): Array<[O, ParserState]> {
   if (methods.length === 0) return [];
   const results: any[] = [[{}, state.slice()]];
   
@@ -352,9 +361,9 @@ export function parseImpl<O>(methods: ParserMethod<O, any, any>[], state: Parser
     const [segments, params, idx] = state;
     switch (method.tag) {
       case 'Params': {
-        for (const key in method.description) {
-          if (!method.description.hasOwnProperty(key)) continue;
-          const item = method.description[key];
+        for (const key in method.tags) {
+          if (!method.tags.hasOwnProperty(key)) continue;
+          const item = method.tags[key];
           const adapter = item.tag === 'NamedAdapter' ? item.adapter : item;
           const paramKey = item.tag === 'NamedAdapter' ? item.name : key;
           const maybeValue = adapter.applyPartial(params.hasOwnProperty(paramKey) ? some(params[paramKey]) : none);
@@ -390,17 +399,26 @@ export function parseImpl<O>(methods: ParserMethod<O, any, any>[], state: Parser
 
   
   function parseMultiple<O>(method: ParserMethod, prevOutput: O, prevState: ParserState): Array<[O, ParserState]> {
-    const [segments, params, idx] = prevState;
     switch (method.tag) {
       case 'OneOf': {
         const output: any[] = [];
-        for (const key in method.description) {
-          if (!method.description.hasOwnProperty(key)) continue;
-          for (const pair of parseImpl(method.description[key].methods, state, options)) {
-            Object.assign(pair[0], prevOutput);
-	    output.push(pair);
+        const trie: PrefixTrie = method.prefixTrie || { '': Object.keys(method.tags).map(k => method.tags[k]) };
+        let iter: PrefixTrie[string] = trie;
+        let idx = prevState[IDX];
+        const segments = prevState[SEGMENTS];
+        do {
+          const mss = Array.isArray(iter) ? iter : iter[''];
+          for (const methods of mss) {
+            for (const pair of parseImpl(methods, state, options)) {
+              Object.assign(pair[0], prevOutput);
+	      output.push(pair);
+            }
           }
-        }
+          if (Array.isArray(iter)) return output;
+          const nextSegment = segments[idx++];
+          if (!iter.hasOwnProperty(nextSegment)) return output;
+          iter = iter[nextSegment];
+        } while (1);
         return output;
       }
       case 'Custom': {
@@ -436,9 +454,9 @@ export function printImpl<I>(methods: ParserMethod<any, I, any>[], route: I): Ur
     switch (method.tag) {
       case 'Params': {
         const params = {} as any;
-        for (const key in method.description) { 
-          if (!method.description.hasOwnProperty(key)) continue;
-          const item = method.description[key];
+        for (const key in method.tags) { 
+          if (!method.tags.hasOwnProperty(key)) continue;
+          const item = method.tags[key];
           const adapter = item.tag === 'NamedAdapter' ? item.adapter : item;
           const paramKey = item.tag === 'NamedAdapter' ? item.name : key;
           const maybeValue = adapter.unapplyPartial(route[key]);
@@ -454,7 +472,7 @@ export function printImpl<I>(methods: ParserMethod<any, I, any>[], route: I): Ur
         return [method.segments, {}];
       }
       case 'OneOf': {
-        return printImpl(method.description[route['tag']].methods, route);
+        return printImpl(method.tags[route['tag']], route);
       }
       case 'Extra': {
         return [[], {}];
@@ -472,26 +490,29 @@ export function printImpl<I>(methods: ParserMethod<any, I, any>[], route: I): Ur
 
 // -- helpers --
 
-
-// iterable thrugh `ParserRules`
-function forEachMethod(rules: ParserRules, visitor: (val: ParserMethod, prefix: ReadonlyArray<string>) => boolean|void): boolean {
-  return forEachMethodHelper(rules, []);
-
-  function forEachMethodHelper(rules: ParserRules, prefix: string[]): boolean {
-    let allVisited = true;
-    outer_for: for (const k in rules) {
-      const methodsOfRules = rules[k];
-      k !== '' && prefix.push(k);
-      if (Array.isArray(methodsOfRules)) {
-        for (const method of methodsOfRules) {
-          if (visitor(method, []) === false) { allVisited = false; break outer_for; }
-        }
-      } else {
-        if (forEachMethodHelper(methodsOfRules, prefix) === false) { allVisited = false; break outer_for; }
-      }
-      k !== '' && prefix.pop();
+function buildTrie(tags: Record<string, ParserMethod[]>): PrefixTrie {
+  const trie: PrefixTrie = { '': [] };
+  for (const k in tags) {
+    tags[k].sort(compareFn);
+    let iter: PrefixTrie = trie;
+    for (let j = 0; j < tags[k].length; j++) {
+      const method = tags[k][j];
+      if (method.tag !== 'Path') break;
+      for (const s of method.segments) { iter[s] = iter[s] || { '': [] }; iter = iter[s] as PrefixTrie; }
     }
-    return allVisited;
+    iter[''].push(tags[k]);
+  }
+  return trie;
+  
+  function compareFn(a: ParserMethod, b: ParserMethod): number {
+    const weights = {
+      'Path': -1,
+      'Segment': -1,
+    };
+    
+    const aWeight = weights[a.tag] || 0;
+    const bWeight = weights[b.tag] || 0;
+    return aWeight === bWeight ? 0 : aWeight > bWeight ? 1 : -1;
   }
 }
 
