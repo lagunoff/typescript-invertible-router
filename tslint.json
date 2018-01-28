@@ -9,6 +9,7 @@
     "no-var-self": false,
     "radix": false,
     "no-unused-variable": [{ "ignore-pattern": "^_" }],
+    "object-literal-key-quotes": false,
     "whitespace": [
       true,
       "check-branch",

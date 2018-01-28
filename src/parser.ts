@@ -1,4 +1,3 @@
-// tslint:disable:object-literal-key-quotes
 import { some, none } from './option';
 import { HasTotalAdapter, HasPartialAdapter } from './adapter';
 
@@ -9,25 +8,23 @@ import { HasTotalAdapter, HasPartialAdapter } from './adapter';
 
 
 /** Internal parser state */
-export type ParserState = [
-  string[],               // SEGMENTS
-  Record<string, string>, // PARAMS
-  number                  // IDX
-];
+export class ParserState {
+  constructor(
+    public segments: string[],
+    public params: Record<string, string>,
+    public idx: number,
+  ) {}
 
-
-export enum ParserStateFields {
-  SEGMENTS = 0,
-  PARAMS = 1,
-  IDX = 2,
+  clone() {
+    return new ParserState(this.segments, this.params, this.idx);
+  }
 }
-const { SEGMENTS, PARAMS, IDX } = ParserStateFields;
 
 
 /**
  * Deconstructed url. The first element of the tuple is the list of
  * path segments and the second is query string dictionary. This type
- * is used as the result type of `printImpl`
+ * is used as the result type of `doPrint`
  */
 export type UrlChunks = [string[], Record<string, string>];
 
@@ -36,23 +33,24 @@ export type UrlChunks = [string[], Record<string, string>];
  * Serialised methods of `Parser`. Instances of class `Parser` contain
  * information about how they were constructed
  */
-export type ParserMethod<O=any, I=O, E=any> =
-  | { tag: 'Params', tags: Record<string, HasPartialAdapter<any>> }
+export type ParserRule<O={}, I=O, Extra={}> =
+  | { tag: 'Params', params: Record<string, HasPartialAdapter<any>> }
   | { tag: 'Segment', key: string, adapter: HasTotalAdapter<any> }
   | { tag: 'Path', segments: string[] }
-  | { tag: 'Embed', key: string, parser: Parser<any, any, any> }
-  | { tag: 'OneOf', tags: Record<string, ParserMethod[]>, prefixTrie?: PrefixTrie }
-  | { tag: 'Extra', payload: E }
+  | { tag: 'Embed', key: string, rules: ParserRule[] }
+  | { tag: 'OneOf', tags: Record<string, ParserRule[]>, prefixTrie?: PrefixTrie }
+  | { tag: 'Extra', payload: Extra }
   | { tag: 'Custom', parse(s: ParserState): Array<[O, ParserState]>, print(a: I): UrlChunks };
 
 
+/** Search optimization structure for `oneOf` */
 export interface PrefixTrie {
-  '': ParserMethod[][];
-  [k: string]: ParserMethod[][]|PrefixTrie; // actually only PrefixTrie
+  '': ParserRule[][];
+  [k: string]: ParserRule[][]|PrefixTrie; // this actually just `PrefixTrie`
 }
 
 
-/** Options for `parseImpl` */
+/** Options for `doParse` */
 export enum ParseOptions {
   OnlyFirstMatch = 0x1 << 0,
   AllSegmentsConsumed = 0x1 << 1,
@@ -92,38 +90,51 @@ export class Parser<O, I=O, Extra={}> {
   readonly _Extra: Extra; // tslint:disable-line:variable-name
 
   constructor(
-    readonly methods: ParserMethod<O, I, Extra>[],
+    readonly rules: ParserRule<O, I, Extra>[],
   ) {}
 
   /** Try to match given string against the rules */
   parse(url: string): O|null {
-    const results = parseImpl(this.methods, prepareState(url));
-    for (const [route, state] of results) {
-      const [segments, params, idx] = state;
-      if (idx === segments.length) return route;
-    }
-    return null;
+    const results = doParse(this.rules, prepareState(url), OnlyFirstMatch);
+    return results.length ? results[0][0] : null;
   }
 
   /** Convert result of parsing back into url. Reverse of `parse` */
   print(route: I): string {
-    return assembleChunks(printImpl(this.methods, route));
+    return assembleChunks(doPrint(this.rules, route));
+  }
+
+  /** Returs all matches */
+  parseBreadcrumbs(url: string): Array<O> {
+    const results = doParse(this.rules, prepareState(url), 0x0).sort(compareFn);
+    const output: Array<O> = [];
+    let idx = -1;
+    for (const [route, state] of results) {
+      if (idx === state.idx) continue;
+      output.push(route);
+      idx = state.idx;
+    }
+    return output;
+
+    function compareFn(a: [O, ParserState], b: [O, ParserState]): number {
+      return a[1].idx === b[1].idx ? 0 : a[1].idx > b[1].idx ? 1 : -1;
+    }
   }
 
   /** 
    * Add path segments to parser
    * 
-   * @param path Path segments separated by slash, extra slashes don't
-   * matter
-   * 
    * ```ts
    * const parser = t.tag('Contacts').path('/my/contacts/');
    * console.log(parser.print({ tag: 'Contacts' })); // => "my/contacts"
    * ```
+   * @param path Path segments separated by slash, extra slashes don't
+   * matter
    */
   path(path: string): Parser<O, I, Extra> {
     const segments = path.split('/').filter(x => x !== '');
-    return new Parser(this.methods.concat({ tag: 'Path', segments } as ParserMethod));
+    this.rules.push({ tag: 'Path', segments });
+    return this as any;
   }
   
   /**
@@ -140,7 +151,8 @@ export class Parser<O, I=O, Extra={}> {
    * @param adapter Adapter for handling segment
    */
   segment<K extends string, B>(key: K, adapter: HasTotalAdapter<B>): Parser<O & { [k in K]: B }, I & { [k in K]: B }, Extra> {
-    return new Parser(this.methods.concat({ tag: 'Segment', key, adapter } as ParserMethod)) as any;
+    this.rules.push({ tag: 'Segment', key, adapter });
+    return this as any;
   }
   
   /**
@@ -155,7 +167,8 @@ export class Parser<O, I=O, Extra={}> {
    * are adapters
    */
   params<Keys extends Record<string, HasPartialAdapter<any>>>(params: Keys): Parser<O & { [k in keyof Keys]: Keys[k]['_A'] }, I & { [k in keyof Keys]: Keys[k]['_A'] }, Extra> {
-    return new Parser(this.methods.concat({ tag: 'Params', tags: params } as ParserMethod)) as any;
+    this.rules.push({ tag: 'Params', params });
+    return this as any;
   }
   
   /**
@@ -171,7 +184,8 @@ export class Parser<O, I=O, Extra={}> {
    * @param that Another `Parser`
    */
   concat<That extends Parser<any, any, any>>(that: That): Parser<O & That['_O'], I & That['_I'], Extra & That['_Extra']> {
-    return new Parser(this.methods.concat(that.methods));
+    that.rules.forEach(x => this.rules.push(x));
+    return this as any;
   }
   
   /**
@@ -187,7 +201,8 @@ export class Parser<O, I=O, Extra={}> {
    * @param that Another `Parser`
    */
   embed<K extends string, That extends Parser<any, any, any>>(key: K, that: That): Parser<O & { [k in K]: That['_O'] }, I & { [k in K]: That['_I'] }, Extra> {
-    return new Parser(this.methods.concat({ tag: 'Embed', key, parser: that } as ParserMethod)) as any;
+    this.rules.push({ tag: 'Embed', key, rules: that.rules.slice() });
+    return this as any;
   }
   
   /**
@@ -208,8 +223,14 @@ export class Parser<O, I=O, Extra={}> {
    * @param payload Object that will be merged with output
    */
   extra<E>(payload: E): Parser<O & E, I, Extra & E> {
-    return new Parser(this.methods.concat({ tag: 'Extra', payload } as ParserMethod)) as any;
-  }  
+    this.rules.push({ tag: 'Extra', payload } as any);
+    return this as any;
+  }
+
+  /** Create a new copy of `Parser` */
+  clone(): Parser<O, I, Extra> {
+    return new Parser(this.rules.slice());
+  }
 }
 
 
@@ -239,8 +260,8 @@ export function extra<E>(payload: E): Parser<E, {}, E> {
 
 
 /** @see `Parser.prototype.params` */
-export function params<Keys extends Record<string, HasPartialAdapter<any>>>(tags: Keys): Parser<{ [k in keyof Keys]: Keys[k]['_A'] }, { [k in keyof Keys]: Keys[k]['_A'] }, {}> {
-  return new Parser([{ tag: 'Params', tags }]);
+export function params<Keys extends Record<string, HasPartialAdapter<any>>>(params: Keys): Parser<{ [k in keyof Keys]: Keys[k]['_A'] }, { [k in keyof Keys]: Keys[k]['_A'] }, {}> {
+  return new Parser([{ tag: 'Params', params }]);
 }
 
 
@@ -284,35 +305,42 @@ export function oneOf<P1 extends T, P2 extends T, P3 extends T, P4 extends T, P5
 export function oneOf<P1 extends T, P2 extends T, P3 extends T, P4 extends T, P5 extends T, P6 extends T, P7 extends T, P8 extends T, P9 extends T>(a: P1, b: P2, c: P3, d: P4, e: P5, f: P6, g: P7, h: P8, i: P9): OneOfParser<P1|P2|P3|P4|P5|P6|P7|P8|P9>;
 export function oneOf<array extends T[]>(array: array): OneOfParser<array[number]>;
 export function oneOf(): OneOfParser<any> {
-  function getTag(parser: T): string|null {
-    for (const m of parser.methods) {
-      if (m.tag === 'Extra' && typeof(m.payload['tag']) === 'string') return m.payload['tag'];
-    }
-    return null;
-  }
   const parsers: ArrayLike<T> = Array.isArray(arguments[0]) ? arguments[0] : arguments;
-  const tags: Record<string, ParserMethod[]> = {};
+  const tags: Record<string, ParserRule[]> = {};
   for (let i = 0; i < parsers.length; i++) {
-    const tag = getTag(parsers[i]);
-    if (tag) tags[tag] = parsers[i].methods.slice();
+    const tag = lookupTag(parsers[i]);
+    if (tag) tags[tag] = parsers[i].rules.slice().sort(compareFn);
     else throw new Error(`oneOf: argument #${i + 1} wasn't provided with a tag`);
   }
 
   const prefixTrie = buildTrie(tags);
   return new Parser([{ tag: 'OneOf', tags, prefixTrie }]);
+
+  function lookupTag(parser: T): string|null {
+    for (const rule of parser.rules) {
+      if (rule.tag === 'Extra' && typeof(rule.payload['tag']) === 'string') return rule.payload['tag'];
+    }
+    return null;
+  }
+
+  function compareFn(a: ParserRule, b: ParserRule): number {
+    const aWeight = a.tag === 'Path' || a.tag === 'Segment' ? -1 : 0;
+    const bWeight = b.tag === 'Path' || b.tag === 'Segment' ? -1 : 0;
+    return aWeight - bWeight;
+  }
 }
 
 
 // construct state from relative url
 export function prepareState(url: string): ParserState {
   const [path, query] = url.split('?');
-  const unvisited = path.split('/').filter(x => x !== '').map(decodeURIComponent);
+  const segments = path.split('/').filter(x => x !== '').map(decodeURIComponent);
   const params = (query || '').split('&').filter(x => x !== '').reduce<Record<string, string>>((acc, pair) => { 
     const [key, value] = pair.split('=').map(decodeURIComponent);
     acc[key] = value || '';
     return acc;
   }, {}); // tslint:disable-line:align
-  return [unvisited, params, 0];
+  return new ParserState(segments, params, 0);
 }
 
 
@@ -328,14 +356,14 @@ export function assembleChunks(chunks: UrlChunks): string {
 
 
 // do actual parsing
-export function parseImpl<O>(methods: ParserMethod<O, any>[], state: ParserState, options = AllSegmentsConsumed): Array<[O, ParserState]> {
-  if (methods.length === 0) return [];
-  const results: any[] = [[{}, state.slice()]];
+export function doParse<O>(rules: ParserRule<O, any>[], state: ParserState, options = AllSegmentsConsumed): Array<[O, ParserState]> {
+  if (rules.length === 0) return [];
+  const results: any[] = [[{}, state.clone()]];
   
-  for (const method of methods) {
+  for (const method of rules) {
     if (method.tag === 'Params' || method.tag === 'Segment' || method.tag === 'Path' || method.tag === 'Extra') {
       let i = 0;
-      while (i >= 0 && i < results.length) {
+      while (i < results.length) {
         if (!parseSingle(method, results[i][0], results[i][1])) {
           results.splice(i, 1);
         } else i++;
@@ -343,7 +371,7 @@ export function parseImpl<O>(methods: ParserMethod<O, any>[], state: ParserState
       if (results.length === 0) return results;
     } else {
       let i = 0;
-      while (i >= 0 && i < results.length) {
+      while (i < results.length) {
         const replacements = parseMultiple(method, results[i][0], results[i][1]);
         results.splice(i, 1, ...replacements);
         i += replacements.length;
@@ -357,13 +385,13 @@ export function parseImpl<O>(methods: ParserMethod<O, any>[], state: ParserState
   type SingleOutput = 'Params'|'Segment'|'Path'|'Extra';
   type MultipleOutput = 'Embed'|'OneOf'|'Custom';
 
-  function parseSingle<O>(method: ParserMethod, output: O, state: ParserState): boolean {
-    const [segments, params, idx] = state;
-    switch (method.tag) {
+  function parseSingle<O>(rule: ParserRule, output: O, state: ParserState): boolean {
+    const { segments, params, idx } = state;
+    switch (rule.tag) {
       case 'Params': {
-        for (const key in method.tags) {
-          if (!method.tags.hasOwnProperty(key)) continue;
-          const item = method.tags[key];
+        for (const key in rule.params) {
+          if (!rule.params.hasOwnProperty(key)) continue;
+          const item = rule.params[key];
           const adapter = item.tag === 'NamedAdapter' ? item.adapter : item;
           const paramKey = item.tag === 'NamedAdapter' ? item.name : key;
           const maybeValue = adapter.applyPartial(params.hasOwnProperty(paramKey) ? some(params[paramKey]) : none);
@@ -375,21 +403,21 @@ export function parseImpl<O>(methods: ParserMethod<O, any>[], state: ParserState
       case 'Segment': {
         if (idx === segments.length) return false;
         const segment = segments[idx];
-        const result = method.adapter.applyTotal(segment);
+        const result = rule.adapter.applyTotal(segment);
         if (result.tag === 'None') return false;
-        output[method.key] = result.value;
-        state[IDX]++;
+        output[rule.key] = result.value;
+        state.idx++;
         return true;
       }
       case 'Path': {
         let mathes = true;
-        for (let i = 0; i < method.segments.length; i++) if (segments[idx + i] !== method.segments[i]) { mathes = false; break; }
+        for (let i = 0; i < rule.segments.length; i++) if (segments[idx + i] !== rule.segments[i]) { mathes = false; break; }
         if (!mathes) return false;
-        state[IDX] += method.segments.length;
+        state.idx += rule.segments.length;
         return true;
       }
       case 'Extra': {
-        Object.assign(output, method.payload);
+        Object.assign(output, rule.payload);
         return true;
       }
     }
@@ -398,42 +426,48 @@ export function parseImpl<O>(methods: ParserMethod<O, any>[], state: ParserState
   }
 
   
-  function parseMultiple<O>(method: ParserMethod, prevOutput: O, prevState: ParserState): Array<[O, ParserState]> {
-    switch (method.tag) {
+  function parseMultiple<O>(rule: ParserRule, prevOutput: O, prevState: ParserState): Array<[O, ParserState]> {
+    switch (rule.tag) {
       case 'OneOf': {
         const output: any[] = [];
-        const trie: PrefixTrie = method.prefixTrie || { '': Object.keys(method.tags).map(k => method.tags[k]) };
-        let iter: PrefixTrie[string] = trie;
-        let idx = prevState[IDX];
-        const segments = prevState[SEGMENTS];
+        const trie: PrefixTrie = rule.prefixTrie || { '': Object.keys(rule.tags).map(k => rule.tags[k]) };
+        let iter: PrefixTrie = trie;
+        let idx = prevState.idx;
+        const parents: PrefixTrie[] = [];
+        const segments = prevState.segments;
         do {
-          const mss = Array.isArray(iter) ? iter : iter[''];
-          for (const methods of mss) {
-            for (const pair of parseImpl(methods, state, options)) {
-              Object.assign(pair[0], prevOutput);
-	      output.push(pair);
+          parents.push(iter);
+          const nextSegment = segments[idx++];
+          if (!iter.hasOwnProperty(nextSegment)) break;
+          iter = iter[nextSegment] as PrefixTrie;
+        } while (1);
+        for (let i = parents.length - 1; i >= 0; i--) {
+          for (const rules of parents[i]['']) {
+            for (const pair of doParse(rules, prevState, options)) {
+              const [route, state] = pair;
+              Object.assign(route, prevOutput);
+	      if (!(options & OnlyFirstMatch)) output.push(pair);
+              if ((options & OnlyFirstMatch) && state.idx === state.segments.length) return [pair] as any;
             }
           }
-          if (Array.isArray(iter)) return output;
-          const nextSegment = segments[idx++];
-          if (!iter.hasOwnProperty(nextSegment)) return output;
-          iter = iter[nextSegment];
-        } while (1);
+        }
         return output;
       }
       case 'Custom': {
-        const output = method.parse(prevState);
-        for (const i in output) {
-          Object.assign(output[i][0], prevOutput);
+        const output = rule.parse(prevState);
+        for (const pair of output) {
+          const [route, state] = pair;
+          Object.assign(route, prevOutput);
+          if ((options & OnlyFirstMatch) && state.idx === state.segments.length) return [pair] as any;
         }
-        return output;
+        return (options & OnlyFirstMatch) ? [] : output as any;
       }
       case 'Embed': {
-        const output = parseImpl(method.parser.methods, prevState, options);
+        const output = doParse(rule.rules, prevState, options);
         for (const i in output) {
-          output[i][0] = Object.assign({ [method.key]: output[i][0] }, prevOutput);
+          output[i][0] = Object.assign({ [rule.key]: output[i][0] }, prevOutput);
         }
-        return output;
+        return output as any;
       }
     }
     // unreachable code
@@ -443,45 +477,54 @@ export function parseImpl<O>(methods: ParserMethod<O, any>[], state: ParserState
 
 
 // do printing
-export function printImpl<I>(methods: ParserMethod<any, I, any>[], route: I): UrlChunks {
-  return methods.map(x => printHelper(x, route)).reduce((acc, [segments, params]: any) => {
-    for (const segment of segments) acc[0].push(segment);
-    for (const key in params) params.hasOwnProperty(key) && (acc[1][key] = params[key]);
-    return acc;
-  }, [[], {}]); // tslint:disable-line:align
-
-  function printHelper(method: ParserMethod, route: I): UrlChunks {
-    switch (method.tag) {
+export function doPrint<I>(rules: ParserRule<any, I, any>[], route: I): UrlChunks {
+  const output: UrlChunks = [[], {}];
+  for (const rule of rules) printHelper(rule, route, output);
+  return output;
+  
+  function printHelper(rule: ParserRule, route: I, output: UrlChunks) {
+    const [segments, params] = output;
+    switch (rule.tag) {
       case 'Params': {
-        const params = {} as any;
-        for (const key in method.tags) { 
-          if (!method.tags.hasOwnProperty(key)) continue;
-          const item = method.tags[key];
+        for (const key in rule.params) { 
+          if (!rule.params.hasOwnProperty(key)) continue;
+          const item = rule.params[key];
           const adapter = item.tag === 'NamedAdapter' ? item.adapter : item;
           const paramKey = item.tag === 'NamedAdapter' ? item.name : key;
           const maybeValue = adapter.unapplyPartial(route[key]);
           if (maybeValue.tag === 'Some') params[paramKey] = maybeValue.value;
         }
-        return [[], params];
+        return void 0;
       }
       case 'Segment': {
-        const segment = method.adapter.unapplyTotal(route[method.key]);
-        return [[segment], {}];
+        segments.push(rule.adapter.unapplyTotal(route[rule.key]));
+        return void 0;
       }
       case 'Path': {
-        return [method.segments, {}];
+        rule.segments.forEach(x => segments.push(x));
+        return void 0;
       }
       case 'OneOf': {
-        return printImpl(method.tags[route['tag']], route);
+        for (const nestedRules of rule.tags[route['tag']]) {
+          printHelper(nestedRules, route, output);
+        }
+        return void 0;
       }
       case 'Extra': {
-        return [[], {}];
+        return void 0;
       }
       case 'Custom': {
-        return method.print(route);
+        for (const chunks of rule.print(route)) {
+          chunks[0].forEach(x => segments.push(x));
+          Object.assign(params, chunks[1]);
+        }
+        return void 0;
       }
       case 'Embed': {
-        return printImpl(method.parser.methods, route[method.key]);
+        for (const nestedRules of rule.rules) {
+          printHelper(nestedRules, route[rule.key], output);
+        }
+        return void 0;
       }
     }
   }  
@@ -490,30 +533,18 @@ export function printImpl<I>(methods: ParserMethod<any, I, any>[], route: I): Ur
 
 // -- helpers --
 
-function buildTrie(tags: Record<string, ParserMethod[]>): PrefixTrie {
+function buildTrie(tags: Record<string, ParserRule[]>): PrefixTrie {
   const trie: PrefixTrie = { '': [] };
   for (const k in tags) {
-    tags[k].sort(compareFn);
     let iter: PrefixTrie = trie;
     for (let j = 0; j < tags[k].length; j++) {
-      const method = tags[k][j];
-      if (method.tag !== 'Path') break;
-      for (const s of method.segments) { iter[s] = iter[s] || { '': [] }; iter = iter[s] as PrefixTrie; }
+      const rule = tags[k][j];
+      if (rule.tag !== 'Path') break;
+      for (const s of rule.segments) { iter[s] = iter[s] || { '': [] }; iter = iter[s] as PrefixTrie; }
     }
     iter[''].push(tags[k]);
   }
   return trie;
-  
-  function compareFn(a: ParserMethod, b: ParserMethod): number {
-    const weights = {
-      'Path': -1,
-      'Segment': -1,
-    };
-    
-    const aWeight = weights[a.tag] || 0;
-    const bWeight = weights[b.tag] || 0;
-    return aWeight === bWeight ? 0 : aWeight > bWeight ? 1 : -1;
-  }
 }
 
 
