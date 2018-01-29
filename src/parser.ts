@@ -117,7 +117,7 @@ export class Parser<O, I=O, Extra={}> {
     return output;
 
     function compareFn(a: [O, ParserState], b: [O, ParserState]): number {
-      return a[1].idx === b[1].idx ? 0 : a[1].idx > b[1].idx ? 1 : -1;
+      return b[1].idx - a[1].idx;
     }
   }
 
