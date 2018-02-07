@@ -10,7 +10,7 @@
   "scripts": {
     "clean": "rm -rf lib/*",
     "build": "rm -rf lib/* && tsc && cp src/internal/isequal* lib/internal",
-    "lint": "tslint --project tsconfig-tslint.json --type-check src/*.ts",
+    "lint": "tslint src/*.ts",
     "docs:build": "ts-node scripts/gendocs.ts src/index.ts > docs/index.md"
   },
   "license": "MIT",

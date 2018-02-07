@@ -382,9 +382,7 @@ export function doParse<O>(rules: ParserRule<O, any>[], state: ParserState, opti
   
   return results;
 
-  type SingleOutput = 'Params'|'Segment'|'Path'|'Extra';
-  type MultipleOutput = 'Embed'|'OneOf'|'Custom';
-
+  // handle rules that produce only one result on success
   function parseSingle<O>(rule: ParserRule, output: O, state: ParserState): boolean {
     const { segments, params, idx } = state;
     switch (rule.tag) {
@@ -425,7 +423,7 @@ export function doParse<O>(rules: ParserRule<O, any>[], state: ParserState, opti
     return false; 
   }
 
-  
+  // handle rules that can produce multiple results
   function parseMultiple<O>(rule: ParserRule, prevOutput: O, prevState: ParserState): Array<[O, ParserState]> {
     switch (rule.tag) {
       case 'OneOf': {
