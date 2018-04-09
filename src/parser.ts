@@ -104,8 +104,8 @@ export class Parser<O, I=O, Extra={}> {
     return assembleChunks(doPrint(this.rules, route));
   }
 
-  /** Returs all matches */
-  parseBreadcrumbs(url: string): Array<O> {
+  /** Return all matches */
+  parseAll(url: string): Array<O> {
     const results = doParse(this.rules, prepareState(url), 0x0).sort(compareFn);
     const output: Array<O> = [];
     let idx = -1;

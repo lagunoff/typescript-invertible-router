@@ -1,13 +1,16 @@
  * [src/parser.ts](#srcparserts)
+   * [class ParserState](#classparserstate)
    * [class Parser](#classparser)
    * [Parser.prototype.parse](#parserprototypeparse)
    * [Parser.prototype.print](#parserprototypeprint)
+   * [Parser.prototype.parseAll](#parserprototypeparseall)
    * [Parser.prototype.path](#parserprototypepath)
    * [Parser.prototype.segment](#parserprototypesegment)
    * [Parser.prototype.params](#parserprototypeparams)
    * [Parser.prototype.concat](#parserprototypeconcat)
    * [Parser.prototype.embed](#parserprototypeembed)
    * [Parser.prototype.extra](#parserprototypeextra)
+   * [Parser.prototype.clone](#parserprototypeclone)
    * [tag](#tag)
    * [custom](#custom)
    * [oneOf](#oneof)
@@ -36,6 +39,10 @@
 
 
 ## src/parser.ts
+
+### class ParserState
+
+Internal parser state 
 
 ### class Parser
 
@@ -77,6 +84,14 @@ print(route: I): string;
 
 Convert result of parsing back into url. Reverse of `parse` 
 
+### Parser.prototype.parseAll
+
+```
+parseAll(url: string): O[];
+```
+
+Return all matches 
+
 ### Parser.prototype.path
 
 ```
@@ -84,6 +99,11 @@ path(path: string): Parser<O, I, Extra>;
 ```
 
 Add path segments to parser
+
+```ts
+const parser = t.tag('Contacts').path('/my/contacts/');
+console.log(parser.print({ tag: 'Contacts' })); // => "my/contacts"
+```
 
 ### Parser.prototype.segment
 
@@ -167,6 +187,14 @@ const parser = r.oneOf(
 console.log(parser.parse('/contacts')); // => { tag: "Contacts", component: Shop { ... } }
 console.log(parser.print({ tag: "Contacts" })); // => "contacts"
 ```
+
+### Parser.prototype.clone
+
+```
+clone(): Parser<O, I, Extra>;
+```
+
+Create a new copy of `Parser` 
 
 ### tag
 
