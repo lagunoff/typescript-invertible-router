@@ -10,6 +10,7 @@
     "radix": false,
     "no-unused-variable": [{ "ignore-pattern": "^_" }],
     "object-literal-key-quotes": false,
+    "no-var-keyword": false,
     "whitespace": [
       true,
       "check-branch",
