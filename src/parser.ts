@@ -382,7 +382,7 @@ export function doParse<O>(rules: ParserRule<O, any>[], state: ParserState, opti
   
   return results;
 
-  // handle rules that produce only one result on success
+  // handle rules that produce only one result
   function parseSingle<O>(rule: ParserRule, output: O, state: ParserState): boolean {
     const { segments, params, idx } = state;
     switch (rule.tag) {

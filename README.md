@@ -39,14 +39,21 @@ $ npm install typescript-invertible-router
       <td>Simple example</td>
       <td>
 	    <a href="https://github.com/lagunoff/typescript-invertible-router/tree/master/examples/simple" target="_blank">source</a> |
-		<a href="http://lagunoff.github.io/typescript-invertible-router/simple/" target="_blank">demo<a>
+		<a href="http://lagunoff.github.io/router-simple/" target="_blank">demo<a>
 	  </td>
     </tr>
     <tr>
       <td>Complete SPA, that uses public api https://restcountries.eu/</td>
       <td>
 	    <a href="https://github.com/lagunoff/typescript-invertible-router/tree/master/examples/restcountries" target="_blank">source</a> |
-		<a href="http://lagunoff.github.io/typescript-invertible-router/restcountries/" target="_blank">demo<a>
+		<a href="http://lagunoff.github.io/restcountries/" target="_blank">demo<a>
+	  </td>
+    </tr>
+    <tr>
+      <td>Breadcrumbs</td>
+      <td>
+	    <a href="https://github.com/lagunoff/typescript-invertible-router/tree/master/examples/life-taxonomy" target="_blank">source</a> |
+		<a href="http://lagunoff.github.io/life-taxonomy/" target="_blank">demo<a>
 	  </td>
     </tr>
   </tbody>
