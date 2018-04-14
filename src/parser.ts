@@ -59,9 +59,8 @@ const { OnlyFirstMatch, AllSegmentsConsumed } = ParseOptions;
 
 
 /**
- * `Parser` represents mutual correspondence between strings of
- * relative urls and some intermediate data structure, usually named
- * `Route`
+ * `Parser` defines mutual correspondence between strings (relative
+ * urls) and some intermediate data structure, usually named `Route`
  * 
  * ```ts
  * type Route = 
@@ -104,8 +103,8 @@ export class Parser<O, I=O, Extra={}> {
     return assembleChunks(doPrint(this.rules, route));
   }
 
-  /** Return all matches */
-  parseAll(url: string): Array<O> {
+  /** Get all matched routes */
+  parseAll(url: string): O[] {
     const results = doParse(this.rules, prepareState(url), 0x0).sort(compareFn);
     const output: Array<O> = [];
     let idx = -1;

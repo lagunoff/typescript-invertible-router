@@ -24,7 +24,7 @@ export const linkStyle = {
   '& a': {
     color: `rgb(${theme.palette.colors[0][0].join(',')})`,
     textDecoration: 'none',
-    borderBottom: `solid 1px rgba(${theme.palette.colors[0][0].join(',')}, 0.75)`,
+    borderBottom: `solid 1px rgba(${theme.palette.colors[0][0].join(',')}, 0.15)`,
     '&:hover': {
       color: `rgba(${theme.palette.colors[0][0].join(',')}, 0.75)`,
     },

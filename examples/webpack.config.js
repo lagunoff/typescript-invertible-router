@@ -5,7 +5,7 @@ const tsConfig = require('./tsconfig.json');
 
 
 module.exports = function(env={}) {
-  const entry = env.entry || './restcountries/index.tsx';
+  const entry = env.entry || './simple/index.tsx';
   const output = env.output || path.join(__dirname, 'public');
   return {
     context: path.resolve(__dirname),

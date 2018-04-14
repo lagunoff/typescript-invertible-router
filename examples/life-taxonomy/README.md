@@ -1,8 +1,8 @@
 This demo shows how `Parser.prototype.parseAll` can be used to
 implement simple «breadcrumbs» navigation strategy. `parseAll` differs
-from `parse` by the fact that its result contain all variants that
-were successfully matched against input, including those that left
-some segments unconsumed.
+from `parse` by the fact that its result contains all routes that were
+successfully matched against the input, including those that left some
+segments unconsumed.
 
 ```ts
 const parser = r.oneOf(
@@ -25,8 +25,8 @@ one that has less unconsumed segments), then the second best and so
 on. In other words, the output has the reverse order compared to the
 order breadcrumbs are usually displayed.
 
-Since result of `parseAll` contains only successfully matched routes,
-in order to make one route descendant from another, it has to have the
-same segment prefix as the parent. This condition restricts the use of
-`parseAll` only to the simple case when each descendant route has all
-its parent segments.
+Since results of `parseAll` contain only successfully matched routes,
+each descendant route has to have a common path prefix with its
+parent. This condition restricts the use of `parseAll` as a
+breadcrumbs implementation only to these simple cases.
+

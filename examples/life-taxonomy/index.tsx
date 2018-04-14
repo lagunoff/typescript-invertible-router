@@ -5,7 +5,6 @@ import { PrefixTrie } from '../../src/parser';
 import LifeTreeMenu from './LifeTreeMenu';
 import theme, { linkStyle } from './theme';
 import jss from 'jss'
-import TopMenu from './TopMenu';
 import Spinner from './Spinner';
 import Breadcrumbs from './Breadcrumbs';
 const readme = require('./README.md');
@@ -111,7 +110,7 @@ class Application extends React.Component<{}, State> {
 
   parseLocation(location: Location): RouteOut[] {
     const path = !location.hash ? '' : location.hash[0] === '#' ? location.hash.slice(1) : location.hash;
-    const breadcrumbs = parser.parseBreadcrumbs(path);
+    const breadcrumbs = parser.parseAll(path);
     const routeNotFound: RouteOut = parser.parse(parser.print({ tag: 'Home' }))!;
     return breadcrumbs.length ? breadcrumbs : [routeNotFound];
   }
@@ -165,7 +164,7 @@ function fetchWikiContent(wikiLink: string): Promise<string> {
     xhr.withCredentials = false;
     xhr.timeout = 15_000;
     try {
-        xhr.open('GET', 'https://crossorigin.me/'+ encodeURI(`https://en.wikipedia.org/w/api.php?action=parse&prop=text&redirects&mobileformat&section=0&page=${wikiLink.split('/')[2]}&format=json`), true);
+      xhr.open('GET', 'https://cors-anywhere.herokuapp.com/'+ encodeURI(`https://en.wikipedia.org/w/api.php?action=parse&prop=text&redirects&mobileformat&section=0&page=${wikiLink.split('/')[2]}&format=json`), true);
       xhr.send();
     } catch (e) {
       reject(e);

@@ -62,4 +62,4 @@ $ npm install typescript-invertible-router
 
 ## Documentation
 
-[documentation](docs/index.md)
+[API reference](docs/index.md)
