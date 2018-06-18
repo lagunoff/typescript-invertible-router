@@ -4,8 +4,9 @@ import { Option, some, none, traverse } from './option';
 
 
 // Base class with instance methods
-export class AdapterBase<A> {
+export class AdapterBase<A, Default extends boolean = false> {
   readonly _A: A;
+  readonly _Default: Default;
 
   /**
    * Set different parameter name compared to the name of the field
@@ -15,10 +16,10 @@ export class AdapterBase<A> {
    * console.log(parser.print({ snakeCase: 42 }));  // => "home?snake_case=42"
    * ```
    */
-  withName(this: HasPartialAdapter<A>, name: string): NamedAdapter<A> {
-    const $this = this;
-    if ($this.tag === 'NamedAdapter') return new NamedAdapter(name, $this.adapter);
-    return new NamedAdapter(name, $this);
+  withName(this: HasPartialAdapter<A>, name: string): NamedAdapter<A, Default> {
+    const self = this;
+    if (self.tag === 'NamedAdapter') return new NamedAdapter(name, self.adapter);
+    return new NamedAdapter(name, self);
   }
 
   /**
@@ -31,31 +32,31 @@ export class AdapterBase<A> {
    * console.log(parser.print({ search: '', page: 1 })); // => "shop/items"
    * ```
    */
-  withDefault(this: TotalAdapter<A>, defaultVal: A): TotalAdapter<A>;
-  withDefault<B>(this: PartialAndTotalAdapter<A>, defaultVal: B): PartialAdapter<A|B>;
-  withDefault<B>(this: PartialAdapter<A>, defaultVal: B): PartialAdapter<A|B>;
-  withDefault<B>(this: NamedAdapter<A>, defaultVal: B): NamedAdapter<A|B>;
-  withDefault<B>(this: Adapter<A>, defaultVal: B): Adapter<A|B>;
-  withDefault<B>(this: Adapter<A>, defaultVal: B): Adapter<A|B> {
-    const $this = this;
-    switch ($this.tag) {
+  withDefault(this: TotalAdapter<A>, defaultVal: A): TotalAdapter<A, true>;
+  withDefault<B>(this: PartialAndTotalAdapter<A>, defaultVal: B): PartialAdapter<A|B, true>;
+  withDefault<B>(this: PartialAdapter<A>, defaultVal: B): PartialAdapter<A|B, true>;
+  withDefault<B>(this: NamedAdapter<A>, defaultVal: B): NamedAdapter<A|B, true>;
+  withDefault<B>(this: Adapter<A>, defaultVal: B): Adapter<A|B, true>;
+  withDefault<B>(this: Adapter<A>, defaultVal: B): Adapter<A|B, true> {
+    const self = this;
+    switch (self.tag) {
       case 'TotalAdapter': {
-        const applyTotal = (s: string) => some($this.applyTotal(s).withDefault(defaultVal));
-        const unapplyTotal = (a: A) => $this.unapplyTotal(a);
+        const applyTotal = (s: string) => some(self.applyTotal(s).withDefault(defaultVal));
+        const unapplyTotal = (a: A) => self.unapplyTotal(a);
         return new TotalAdapter(applyTotal, unapplyTotal);
       }
       case 'PartialAdapter': {
-        const applyPartial = (s: Option<string>) => some($this.applyPartial(s).withDefault(defaultVal));
-        const unapplyPartial = (aOrB: A|B) => isEqual(aOrB, defaultVal) ? none : $this.unapplyPartial(aOrB as A);
+        const applyPartial = (s: Option<string>) => some(self.applyPartial(s).withDefault(defaultVal));
+        const unapplyPartial = (aOrB: A|B) => isEqual(aOrB, defaultVal) ? none : self.unapplyPartial(aOrB as A);
         return new PartialAdapter(applyPartial, unapplyPartial);
       }
       case 'PartialAndTotalAdapter': {
-        const applyPartial = (s: Option<string>) => some($this.applyPartial(s).withDefault(defaultVal));
-        const unapplyPartial = (aOrB: A|B) => isEqual(aOrB, defaultVal) ? none : $this.unapplyPartial(aOrB as A);
+        const applyPartial = (s: Option<string>) => some(self.applyPartial(s).withDefault(defaultVal));
+        const unapplyPartial = (aOrB: A|B) => isEqual(aOrB, defaultVal) ? none : self.unapplyPartial(aOrB as A);
         return new PartialAdapter(applyPartial, unapplyPartial);
       }
       case 'NamedAdapter': {
-        return new NamedAdapter($this.name, $this.adapter.withDefault(defaultVal) as PartialAdapter<A>);
+        return new NamedAdapter(self.name, self.adapter.withDefault(defaultVal) as PartialAdapter<A>);
       }
     }
   }
@@ -75,33 +76,33 @@ export class AdapterBase<A> {
    * console.log(parser.print({ choice: 1 })); // => "quiz?choice=one"
    * ```
    */
-  dimap<B>(this: TotalAdapter<A>, f: (a: A) => B, g: (b: B) => A): TotalAdapter<B>;
-  dimap<B>(this: PartialAndTotalAdapter<A>, f: (a: A) => B, g: (b: B) => A): PartialAndTotalAdapter<B>;
-  dimap<B>(this: PartialAdapter<A>, f: (a: A) => B, g: (b: B) => A): PartialAdapter<B>;
-  dimap<B>(this: NamedAdapter<A>, f: (a: A) => B, g: (b: B) => A): NamedAdapter<B>;
-  dimap<B>(this: Adapter<A>, f: (a: A) => B, g: (b: B) => A): Adapter<B>;
-  dimap<B>(this: Adapter<A>, f: (a: A) => B, g: (b: B) => A): Adapter<B> {
-    const $this = this;
-    switch ($this.tag) {
+  dimap<B>(this: TotalAdapter<A>, f: (a: A) => B, g: (b: B) => A): TotalAdapter<B, Default>;
+  dimap<B>(this: PartialAndTotalAdapter<A>, f: (a: A) => B, g: (b: B) => A): PartialAndTotalAdapter<B, Default>;
+  dimap<B>(this: PartialAdapter<A>, f: (a: A) => B, g: (b: B) => A): PartialAdapter<B, Default>;
+  dimap<B>(this: NamedAdapter<A>, f: (a: A) => B, g: (b: B) => A): NamedAdapter<B, Default>;
+  dimap<B>(this: Adapter<A>, f: (a: A) => B, g: (b: B) => A): Adapter<B, Default>;
+  dimap<B>(this: Adapter<A>, f: (a: A) => B, g: (b: B) => A): Adapter<B, Default> {
+    const self = this;
+    switch (self.tag) {
       case 'TotalAdapter': {
-        const applyTotal = (s: string) => $this.applyTotal(s).map(f);
-        const unapplyTotal = (b: B) => $this.unapplyTotal(g(b));
+        const applyTotal = (s: string) => self.applyTotal(s).map(f);
+        const unapplyTotal = (b: B) => self.unapplyTotal(g(b));
         return new TotalAdapter(applyTotal, unapplyTotal);
       }
       case 'PartialAdapter': {
-        const applyPartial = (s: Option<string>) => $this.applyPartial(s).map(f);
-        const unapplyPartial = (b: B) => $this.unapplyPartial(g(b));
+        const applyPartial = (s: Option<string>) => self.applyPartial(s).map(f);
+        const unapplyPartial = (b: B) => self.unapplyPartial(g(b));
         return new PartialAdapter(applyPartial, unapplyPartial);
       }
       case 'PartialAndTotalAdapter': {
-        const applyTotal = (s: string) => $this.applyTotal(s).map(f);
-        const unapplyTotal = (b: B) => $this.unapplyTotal(g(b));
-        const applyPartial = (s: Option<string>) => $this.applyPartial(s).map(f);
-        const unapplyPartial = (b: B) => $this.unapplyPartial(g(b));
+        const applyTotal = (s: string) => self.applyTotal(s).map(f);
+        const unapplyTotal = (b: B) => self.unapplyTotal(g(b));
+        const applyPartial = (s: Option<string>) => self.applyPartial(s).map(f);
+        const unapplyPartial = (b: B) => self.unapplyPartial(g(b));
         return new PartialAndTotalAdapter(applyTotal, unapplyTotal, applyPartial, unapplyPartial);
       }
       case 'NamedAdapter': {
-        return new NamedAdapter($this.name, $this.adapter.dimap(f, g) as PartialAdapter<B>);
+        return new NamedAdapter(self.name, self.adapter.dimap(f, g) as PartialAdapter<B, Default>);
       }
     }
   }
@@ -112,7 +113,7 @@ export class AdapterBase<A> {
  * `TotalAdapter<A>` describes mutual correspondence between `string`
  * and `A`. These adapters are used in `r.array` and `r.segment`
  */
-export class TotalAdapter<A> extends AdapterBase<A> {
+export class TotalAdapter<A, Default extends boolean = false> extends AdapterBase<A, Default> {
   readonly tag: 'TotalAdapter' = 'TotalAdapter';
 
   constructor(
@@ -126,7 +127,7 @@ export class TotalAdapter<A> extends AdapterBase<A> {
  * `PartialAdapter<A>` describes mutual correspondence between
  * `Option<string>` and `A`. These adapters are used in `r.param`
  */
-export class PartialAdapter<A> extends AdapterBase<A> {
+export class PartialAdapter<A, Default extends boolean = false> extends AdapterBase<A, Default> {
   readonly tag: 'PartialAdapter' = 'PartialAdapter';
 
   constructor(
@@ -137,7 +138,7 @@ export class PartialAdapter<A> extends AdapterBase<A> {
 
 
 /** Combination of `TotalAdapter<A>` and `PartialAdapter<A>` */
-export class PartialAndTotalAdapter<A> extends AdapterBase<A> {
+export class PartialAndTotalAdapter<A, Default extends boolean = false> extends AdapterBase<A, Default> {
   readonly tag: 'PartialAndTotalAdapter' = 'PartialAndTotalAdapter';
 
   constructor(
@@ -150,20 +151,34 @@ export class PartialAndTotalAdapter<A> extends AdapterBase<A> {
 
 
 /** Contains another adapter and its name */
-export class NamedAdapter<A> extends AdapterBase<A> {
+export class NamedAdapter<A, Default extends boolean = false> extends AdapterBase<A, Default> {
   readonly tag: 'NamedAdapter' = 'NamedAdapter';
 
   constructor(
     readonly name: string,
-    readonly adapter: PartialAdapter<A>|PartialAndTotalAdapter<A>,
+    readonly adapter: PartialAdapter<A, Default>|PartialAndTotalAdapter<A, Default>,
   ) { super(); }
 }
 
 
 // Aliases
-export type Adapter<A> = PartialAdapter<A>|TotalAdapter<A>|PartialAndTotalAdapter<A>|NamedAdapter<A>;
-export type HasTotalAdapter<A> = TotalAdapter<A>|PartialAndTotalAdapter<A>;
-export type HasPartialAdapter<A> = PartialAdapter<A>|PartialAndTotalAdapter<A>|NamedAdapter<A>;
+export type Adapter<A, Default extends boolean = false> =
+  | PartialAdapter<A, Default>
+  | TotalAdapter<A, Default>
+  | PartialAndTotalAdapter<A, Default>
+  | NamedAdapter<A, Default>
+  ;
+
+export type HasTotalAdapter<A, Default extends boolean = false> =
+  | TotalAdapter<A, Default>
+  | PartialAndTotalAdapter<A, Default>
+  ;
+
+export type HasPartialAdapter<A, Default extends boolean = false> =
+  | PartialAdapter<A, Default>
+  | PartialAndTotalAdapter<A, Default>
+  | NamedAdapter<A, Default>
+  ;
 
 
 /** Strings */

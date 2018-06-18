@@ -12,28 +12,28 @@ export class OptionBase<A> {
 
   /** Apply function `f` to the underlying value */
   map<B>(f: (a: A) => B): Option<B> {
-    const $this = this as any as Option<A>;
-    switch ($this.tag) {
-      case 'None': return $this as any;
-      case 'Some': return new Some(f($this.value));
+    const self = this as any as Option<A>;
+    switch (self.tag) {
+      case 'None': return self as any;
+      case 'Some': return new Some(f(self.value));
     }
   }
 
   /** Extract value from `this` then apply `f` to the result */
   chain<B>(f: (a: A) => Option<B>): Option<B> {
-    const $this = this as any as Option<A>;
-    switch ($this.tag) {
-      case 'None': return $this as any;
-      case 'Some': return f($this.value);
+    const self = this as any as Option<A>;
+    switch (self.tag) {
+      case 'None': return self as any;
+      case 'Some': return f(self.value);
     }
   }
 
   /** Unwrap underlying value */
   fold<B extends Expr, C extends Expr>(fromNone: B, fromSome: (x: A) => C): B|C {
-    const $this = this as any as Option<A>;
-    switch ($this.tag) {
+    const self = this as any as Option<A>;
+    switch (self.tag) {
       case 'None': return fromNone;
-      case 'Some': return fromSome($this.value);
+      case 'Some': return fromSome(self.value);
     }
   }
 
