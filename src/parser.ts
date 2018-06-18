@@ -6,50 +6,6 @@ import { HasTotalAdapter, HasPartialAdapter } from './adapter';
 // http://www.informatik.uni-marburg.de/~rendel/unparse/rendel10invertible.pdf
 // https://github.com/evancz/url-parser/tree/2.0.1
 
-
-/** Internal parser state */
-export class ParserState {
-  constructor(
-    public segments: string[],
-    public params: Record<string, string>,
-    public idx: number,
-  ) {}
-
-  clone() {
-    return new ParserState(this.segments, this.params, this.idx);
-  }
-}
-
-
-/**
- * Deconstructed url. The first element of the tuple is the list of
- * path segments and the second is query string dictionary. This type
- * is used as the result type of `doPrint`
- */
-export type UrlChunks = [string[], Record<string, string>];
-
-
-/**
- * Serialised methods of `Parser`. Instances of class `Parser` contain
- * information about how they were constructed
- */
-export type ParserRule<O={}, I=O, Extra={}> =
-  | { tag: 'Params', params: Record<string, HasPartialAdapter<any>> }
-  | { tag: 'Segment', key: string, adapter: HasTotalAdapter<any> }
-  | { tag: 'Path', segments: string[] }
-  | { tag: 'Embed', key: string, rules: ParserRule[] }
-  | { tag: 'OneOf', tags: Record<string, ParserRule[]>, prefixTrie?: PrefixTrie }
-  | { tag: 'Extra', payload: Extra }
-  | { tag: 'Custom', parse(s: ParserState): Array<[O, ParserState]>, print(a: I): UrlChunks };
-
-
-/** Search optimization structure for `oneOf` */
-export interface PrefixTrie {
-  '': ParserRule[][];
-  [k: string]: ParserRule[][]|PrefixTrie; // this actually just `PrefixTrie`
-}
-
-
 /** Options for `doParse` */
 export enum ParseOptions {
   OnlyFirstMatch = 0x1 << 0,
@@ -60,7 +16,10 @@ const { OnlyFirstMatch, AllSegmentsConsumed } = ParseOptions;
 
 /**
  * `Parser` defines mutual correspondence between strings (relative
- * urls) and some intermediate data structure, usually named `Route`
+ * urls) (e.g. "/" "/shop" "/blog?tags=art") and some intermediate
+ * data structure, usually named `Route`. Parser maybe is a misleading
+ * name, because besides parsing it also does the opposite operation,
+ * printing.
  * 
  * ```ts
  * type Route = 
@@ -89,7 +48,7 @@ export class Parser<O, I=O, Extra={}> {
   readonly _Extra: Extra; // tslint:disable-line:variable-name
 
   constructor(
-    readonly rules: ParserRule<O, I, Extra>[],
+    readonly rules: ParserMethod<O, I, Extra>[],
   ) {}
 
   /** Try to match given string against the rules */
@@ -98,12 +57,26 @@ export class Parser<O, I=O, Extra={}> {
     return results.length ? results[0][0] : null;
   }
 
-  /** Convert result of parsing back into url. Reverse of `parse` */
+  /** Convert result of parsing back into url. Inverse of `parse` */
   print(route: I): string {
     return assembleChunks(doPrint(this.rules, route));
   }
 
-  /** Get all matched routes */
+  /**
+   * Similar to `parse`, but returns an array of routes that includes
+   * all intermediate results that would succeed if input didn't have
+   * some redundant path segments.
+   * 
+   * ```ts
+   * const parser = r.oneOf(
+   *   r.tag('Home').path('/'),
+   *   r.tag('Shop').path('/shop'),
+   *   r.tag('Item').path('/shop/item').segment('id', r.nestring),
+   * );
+   * console.log(parser.parseAll('/shop/item/42'));
+   * // => [{ tag: 'Item', id: '42' }, { tag: 'Shop' }, { tag: 'Home' }]
+   * ```
+   */
   parseAll(url: string): O[] {
     const results = doParse(this.rules, prepareState(url), 0x0).sort(compareFn);
     const output: Array<O> = [];
@@ -137,17 +110,17 @@ export class Parser<O, I=O, Extra={}> {
   }
   
   /**
-   * Parse one path segment
+   * Parse one path segment with adapter and assign the result to the
+   * field with the given key
    * 
    * ```ts
-   * const categoryAdapter = r.literals('electronics', 'art', 'music');
-   * const parser = r.path('/category').segment('category', categoryAdapter).segment('page', r.nat);
+   * const parser = r.path('/shop').segment('category', r.nestring).segment('page', r.nat);
    * console.log(parser.parse('/category/art/10')); // => { category: "art", page: 10 }
    * console.log(parser.parse('/category/art')); // => null
    * console.log(parser.print({ category: 'music', page: 1 })); // => "category/music/1"
    * ```
    * @param key Field name in the data structure
-   * @param adapter Adapter for handling segment
+   * @param adapter Adapter for parsing content of the segment
    */
   segment<K extends string, B>(key: K, adapter: HasTotalAdapter<B>): Parser<O & { [k in K]: B }, I & { [k in K]: B }, Extra> {
     this.rules.push({ tag: 'Segment', key, adapter });
@@ -172,7 +145,7 @@ export class Parser<O, I=O, Extra={}> {
   
   /**
    * Join two parsers together. Underlying types will be combined through
-   * intersection. That is fields will be merged
+   * intersection. That is, the fields will be merged
    * 
    * ```ts
    * const blog = r.path('/blog').params({ page: r.nat.withDefault(1) });
@@ -226,14 +199,14 @@ export class Parser<O, I=O, Extra={}> {
     return this as any;
   }
 
-  /** Create a new copy of `Parser` */
+  /** Create a copy of `Parser` */
   clone(): Parser<O, I, Extra> {
     return new Parser(this.rules.slice());
   }
 }
 
 
-/** Tag route with a uniq key in order to use in `oneOf` */
+/** Provide parser with a unique key in order to use it in `oneOf` */
 export function tag<T extends string>(tag: T): Parser<{ tag: T }, { tag: T }, { tag: T }> {
   return new Parser([{ tag: 'Extra', payload: { tag } }]);
 }
@@ -272,10 +245,9 @@ export function custom<O, I=O>(parse: (s: ParserState) => Array<[O, ParserState]
 }
 
 
-// Constrains for tagged parsers
-export type T = Parser<any, any, { tag: string }>;
 // Shorthand for result of `oneOf`
 export type OneOfParser<P extends T> = Parser<P['_O'], P['_I'], {}>;
+export type T = Parser<any, any, { tag: string }>;
 
 
 /**
@@ -305,7 +277,7 @@ export function oneOf<P1 extends T, P2 extends T, P3 extends T, P4 extends T, P5
 export function oneOf<array extends T[]>(array: array): OneOfParser<array[number]>;
 export function oneOf(): OneOfParser<any> {
   const parsers: ArrayLike<T> = Array.isArray(arguments[0]) ? arguments[0] : arguments;
-  const tags: Record<string, ParserRule[]> = {};
+  const tags: Record<string, ParserMethod[]> = {};
   for (let i = 0; i < parsers.length; i++) {
     const tag = lookupTag(parsers[i]);
     if (tag) tags[tag] = parsers[i].rules.slice().sort(compareFn);
@@ -322,7 +294,7 @@ export function oneOf(): OneOfParser<any> {
     return null;
   }
 
-  function compareFn(a: ParserRule, b: ParserRule): number {
+  function compareFn(a: ParserMethod, b: ParserMethod): number {
     const aWeight = a.tag === 'Path' || a.tag === 'Segment' ? -1 : 0;
     const bWeight = b.tag === 'Path' || b.tag === 'Segment' ? -1 : 0;
     return aWeight - bWeight;
@@ -330,7 +302,7 @@ export function oneOf(): OneOfParser<any> {
 }
 
 
-// construct state from relative url
+// Construct state from relative url
 export function prepareState(url: string): ParserState {
   const [path, query] = url.split('?');
   const segments = path.split('/').filter(x => x !== '').map(decodeURIComponent);
@@ -343,7 +315,7 @@ export function prepareState(url: string): ParserState {
 }
 
 
-// construct url from the result of `Parser.print`
+// Construct url from the result of `Parser.print`
 export function assembleChunks(chunks: UrlChunks): string {
   const [segments, params] = chunks;
   const query = Object.keys(params).map(key => {
@@ -354,8 +326,8 @@ export function assembleChunks(chunks: UrlChunks): string {
 }
 
 
-// do actual parsing
-export function doParse<O>(rules: ParserRule<O, any>[], state: ParserState, options = AllSegmentsConsumed): Array<[O, ParserState]> {
+// Do actual parsing
+export function doParse<O>(rules: ParserMethod<O, any>[], state: ParserState, options = AllSegmentsConsumed): Array<[O, ParserState]> {
   if (rules.length === 0) return [];
   const results: any[] = [[{}, state.clone()]];
   
@@ -381,8 +353,8 @@ export function doParse<O>(rules: ParserRule<O, any>[], state: ParserState, opti
   
   return results;
 
-  // handle rules that produce only one result
-  function parseSingle<O>(rule: ParserRule, output: O, state: ParserState): boolean {
+  // Handle rules that produce only one result
+  function parseSingle<O>(rule: ParserMethod, output: O, state: ParserState): boolean {
     const { segments, params, idx } = state;
     switch (rule.tag) {
       case 'Params': {
@@ -422,8 +394,8 @@ export function doParse<O>(rules: ParserRule<O, any>[], state: ParserState, opti
     return false; 
   }
 
-  // handle rules that can produce multiple results
-  function parseMultiple<O>(rule: ParserRule, prevOutput: O, prevState: ParserState): Array<[O, ParserState]> {
+  // Handle rules that can produce multiple results
+  function parseMultiple<O>(rule: ParserMethod, prevOutput: O, prevState: ParserState): Array<[O, ParserState]> {
     switch (rule.tag) {
       case 'OneOf': {
         const output: any[] = [];
@@ -473,13 +445,13 @@ export function doParse<O>(rules: ParserRule<O, any>[], state: ParserState, opti
 }
 
 
-// do printing
-export function doPrint<I>(rules: ParserRule<any, I, any>[], route: I): UrlChunks {
+// Do printing
+export function doPrint<I>(rules: ParserMethod<any, I, any>[], route: I): UrlChunks {
   const output: UrlChunks = [[], {}];
   for (const rule of rules) printHelper(rule, route, output);
   return output;
   
-  function printHelper(rule: ParserRule, route: I, output: UrlChunks) {
+  function printHelper(rule: ParserMethod, route: I, output: UrlChunks) {
     const [segments, params] = output;
     switch (rule.tag) {
       case 'Params': {
@@ -528,9 +500,57 @@ export function doPrint<I>(rules: ParserRule<any, I, any>[], route: I): UrlChunk
 }
 
 
+/** Internal parser state */
+export class ParserState {
+  constructor(
+    public segments: string[],
+    public params: Record<string, string>,
+    public idx: number,
+  ) {}
+
+  clone() {
+    return new ParserState(this.segments, this.params, this.idx);
+  }
+}
+
+
+/**
+ * Deconstructed url. The first element of the tuple is the list of
+ * path segments and the second is query string dictionary. This type
+ * is used as the result type of `doPrint`
+ */
+export type UrlChunks = [string[], Record<string, string>];
+
+
+/**
+ * Serialised representation of methods of `Parser`. Instances of
+ * class `Parser` contain information about how they were
+ * constructed. Later this information is used in `doParse` and
+ * `doPrint`.
+ */
+export type ParserMethod<O={}, I=O, Extra={}> =
+  | { tag: 'Params', params: Record<string, HasPartialAdapter<any>> }
+  | { tag: 'Segment', key: string, adapter: HasTotalAdapter<any> }
+  | { tag: 'Path', segments: string[] }
+  | { tag: 'Embed', key: string, rules: ParserMethod[] }
+  | { tag: 'OneOf', tags: Record<string, ParserMethod[]>, prefixTrie?: PrefixTrie }
+  | { tag: 'Extra', payload: Extra }
+  | { tag: 'Custom', parse(s: ParserState): Array<[O, ParserState]>, print(a: I): UrlChunks };
+
+
+/**
+ * Search optimization structure for `oneOf`
+ * @see https://en.wikipedia.org/wiki/Trie
+ */
+export interface PrefixTrie {
+  '': ParserMethod[][];
+  [k: string]: ParserMethod[][]|PrefixTrie; // this should be just `PrefixTrie`, but ts complains
+}
+
+
 // -- helpers --
 
-function buildTrie(tags: Record<string, ParserRule[]>): PrefixTrie {
+function buildTrie(tags: Record<string, ParserMethod[]>): PrefixTrie {
   const trie: PrefixTrie = { '': [] };
   for (const k in tags) {
     let iter: PrefixTrie = trie;
