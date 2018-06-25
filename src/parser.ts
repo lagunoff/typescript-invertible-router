@@ -1,5 +1,6 @@
 import { some, none } from './option';
-import { HasTotalAdapter, HasPartialAdapter } from './adapter';
+import { Adapter } from './adapter';
+import isEqual from './internal/isequal';
 
 
 // Invertible url parser library
@@ -122,7 +123,7 @@ export class Parser<O, I=O, Extra={}> {
    * @param key Field name in the data structure
    * @param adapter Adapter for parsing content of the segment
    */
-  segment<K extends string, B>(key: K, adapter: HasTotalAdapter<B>): Parser<O & { [k in K]: B }, I & { [k in K]: B }, Extra> {
+  segment<K extends string, A extends Adapter<any, { hasTotal: true }>>(key: K, adapter: A): SegmentParser<O, I, Extra, K, A> {
     this.rules.push({ tag: 'Segment', key, adapter });
     return this as any;
   }
@@ -138,7 +139,7 @@ export class Parser<O, I=O, Extra={}> {
    * @param params Object where keys are parameter names and values
    * are adapters
    */
-  params<Keys extends Record<string, HasPartialAdapter<any>>>(params: Keys): Parser<O & { [k in keyof Keys]: Keys[k]['_A'] }, I & { [k in keyof Keys]: Keys[k]['_A'] }, Extra> {
+  params<R extends Record<string, Adapter<any, { hasPartial: true }>>>(params: R): ParamsParser<O, I, Extra, R> {
     this.rules.push({ tag: 'Params', params });
     return this as any;
   }
@@ -220,7 +221,7 @@ export function path(segmentsStr: string): Parser<{}, {}, {}> {
 
 
 /** @see `Parser.prototype.segment` */
-export function segment<K extends string, A>(key: K, adapter: HasTotalAdapter<A>): Parser<{ [k in K]: A }, { [k in K]: A }, {}> {
+export function segment<K extends string, A extends Adapter<any, { hasTotal: true }>>(key: K, adapter: A): SegmentParser<{}, {}, {}, K, A> {
   return new Parser([{ tag: 'Segment', key, adapter }]);
 }
 
@@ -232,7 +233,7 @@ export function extra<E>(payload: E): Parser<E, {}, E> {
 
 
 /** @see `Parser.prototype.params` */
-export function params<Keys extends Record<string, HasPartialAdapter<any>>>(params: Keys): Parser<{ [k in keyof Keys]: Keys[k]['_A'] }, { [k in keyof Keys]: Keys[k]['_A'] }, {}> {
+export function params<R extends Record<string, Adapter<any, { hasPartial: true }>>>(params: R): ParamsParser<{}, {}, {}, R> {
   return new Parser([{ tag: 'Params', params }]);
 }
 
@@ -361,9 +362,12 @@ export function doParse<O>(rules: ParserMethod<O, any>[], state: ParserState, op
         for (const key in rule.params) {
           if (!rule.params.hasOwnProperty(key)) continue;
           const item = rule.params[key];
-          const adapter = item.tag === 'NamedAdapter' ? item.adapter : item;
-          const paramKey = item.tag === 'NamedAdapter' ? item.name : key;
-          const maybeValue = adapter.applyPartial(params.hasOwnProperty(paramKey) ? some(params[paramKey]) : none);
+          const namedAdapter = item.getImpl('hasName');
+          const defaultAdapter = item.getImpl('hasDefault');
+          const paramKey = namedAdapter ? namedAdapter._name : key;
+          const maybeValue = item.getImpl('hasPartial')._applyPartial(params.hasOwnProperty(paramKey) ? some(params[paramKey]) : none).or(
+            defaultAdapter ? some(defaultAdapter._default) : none
+          );
           if (maybeValue.tag === 'None') return false;
           output[key] = maybeValue.value;
         }
@@ -372,7 +376,7 @@ export function doParse<O>(rules: ParserMethod<O, any>[], state: ParserState, op
       case 'Segment': {
         if (idx === segments.length) return false;
         const segment = segments[idx];
-        const result = rule.adapter.applyTotal(segment);
+        const result = rule.adapter.getImpl('hasTotal')._applyTotal(segment);
         if (result.tag === 'None') return false;
         output[rule.key] = result.value;
         state.idx++;
@@ -457,16 +461,19 @@ export function doPrint<I>(rules: ParserMethod<any, I, any>[], route: I): UrlChu
       case 'Params': {
         for (const key in rule.params) { 
           if (!rule.params.hasOwnProperty(key)) continue;
-          const item = rule.params[key];
-          const adapter = item.tag === 'NamedAdapter' ? item.adapter : item;
-          const paramKey = item.tag === 'NamedAdapter' ? item.name : key;
-          const maybeValue = adapter.unapplyPartial(route[key]);
+          const adapter = rule.params[key];
+          const defaultAdapter = adapter.getImpl('hasDefault');
+          if (defaultAdapter && (!(key in route) || isEqual(route[key], defaultAdapter._default))) continue;
+          const namedAdapter = adapter.getImpl('hasName');
+          const paramKey = namedAdapter ? namedAdapter._name : key;
+          const maybeValue = adapter.getImpl('hasPartial')._unapplyPartial(route[key]);
           if (maybeValue.tag === 'Some') params[paramKey] = maybeValue.value;
         }
         return void 0;
       }
       case 'Segment': {
-        segments.push(rule.adapter.unapplyTotal(route[rule.key]));
+        const value = rule.key in route ? route[rule.key] : rule.adapter.getImpl('hasDefault')!._default;
+        segments.push(rule.adapter.getImpl('hasTotal')._unapplyTotal(value));
         return void 0;
       }
       case 'Path': {
@@ -529,8 +536,8 @@ export type UrlChunks = [string[], Record<string, string>];
  * `doPrint`.
  */
 export type ParserMethod<O={}, I=O, Extra={}> =
-  | { tag: 'Params', params: Record<string, HasPartialAdapter<any>> }
-  | { tag: 'Segment', key: string, adapter: HasTotalAdapter<any> }
+  | { tag: 'Params', params: Record<string, Adapter<any, { hasPartial: true }>> }
+  | { tag: 'Segment', key: string, adapter: Adapter<any, { hasTotal: true }> }
   | { tag: 'Path', segments: string[] }
   | { tag: 'Embed', key: string, rules: ParserMethod[] }
   | { tag: 'OneOf', tags: Record<string, ParserMethod[]>, prefixTrie?: PrefixTrie }
@@ -549,6 +556,34 @@ export interface PrefixTrie {
 
 
 // -- helpers --
+
+
+// Result type for `Parser.prototype.segment`
+export type SegmentParser<O, I, Extra, K extends string, A extends Adapter<any, { hasTotal }>>
+  = Parser<O & { [K_ in K]: A['_A'] }, I & InParams<{ [K_ in K]: A['_A'] }>, Extra>;
+
+
+// Result type for `Parser.prototype.params`
+export type ParamsParser<O, I, Extra, R extends Record<string, Adapter<any, { hasPartial: true }>>>
+  = Parser<O & OutParams<R>, I & InParams<R>, Extra>;
+
+
+export type InParams<R extends Record<string, Adapter<any, any>>> = {
+  [K in Exclude<keyof R, PickDefault<R>>]: R[K] extends Adapter<infer A, any> ? A : never;
+} & {
+  [K in PickDefault<R>]?: R[K] extends Adapter<infer A, any> ? A : never;
+};
+
+
+export type OutParams<R extends Record<string, Adapter<any, any>>> = {
+  [K in keyof R]: R[K] extends Adapter<infer A, any> ? A : never;
+}
+
+export type PickDefault<R extends Record<string, Adapter<any, any>>> = {
+  [K in keyof R]: R[K] extends Adapter<infer A, { hasDefault: true }> ? K : never
+}[keyof R];
+
+    
 
 function buildTrie(tags: Record<string, ParserMethod[]>): PrefixTrie {
   const trie: PrefixTrie = { '': [] };

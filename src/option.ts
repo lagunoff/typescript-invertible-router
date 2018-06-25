@@ -41,6 +41,15 @@ export class OptionBase<A> {
   withDefault<B extends Expr>(fromNone: B): A|B {
     return this.fold(fromNone, x => x);
   }
+
+  /** Similar to `||` operation with nullable types */
+  or<B>(that: Option<B>): Option<B|A> {
+    const self = this as any as Option<A>;
+    switch (self.tag) {
+      case 'None': return that;
+      case 'Some': return self;
+    }
+  }  
 }
 
   
