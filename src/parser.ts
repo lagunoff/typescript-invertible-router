@@ -41,15 +41,13 @@ const { OnlyFirstMatch, AllSegmentsConsumed } = ParseOptions;
  * ```
  * @param O Result of parsing (output)
  * @param I Input for printing, usually same as `O`
- * @param Extra Extra fields in `O` not required to be present in `I`
  */
-export class Parser<O, I=O, Extra={}> {
+export class Parser<O, I=O> {
   readonly _O: O;
   readonly _I: I;
-  readonly _Extra: Extra; // tslint:disable-line:variable-name
 
   constructor(
-    readonly rules: ParserMethod<O, I, Extra>[],
+    readonly rules: ParserMethod<O, I>[],
   ) {}
 
   /** Try to match given string against the rules */
@@ -104,7 +102,7 @@ export class Parser<O, I=O, Extra={}> {
    * @param path Path segments separated by slash, extra slashes don't
    * matter
    */
-  path(path: string): Parser<O, I, Extra> {
+  path(path: string): Parser<O, I> {
     const segments = path.split('/').filter(x => x !== '');
     this.rules.push({ tag: 'Path', segments });
     return this as any;
@@ -123,7 +121,7 @@ export class Parser<O, I=O, Extra={}> {
    * @param key Field name in the data structure
    * @param adapter Adapter for parsing content of the segment
    */
-  segment<K extends string, A extends Adapter<any, { hasTotal: true }>>(key: K, adapter: A): SegmentParser<O, I, Extra, K, A> {
+  segment<K extends string, A extends Adapter<any, { hasTotal: true }>>(key: K, adapter: A): SegmentParser<O, I, K, A> {
     this.rules.push({ tag: 'Segment', key, adapter });
     return this as any;
   }
@@ -139,7 +137,7 @@ export class Parser<O, I=O, Extra={}> {
    * @param params Object where keys are parameter names and values
    * are adapters
    */
-  params<R extends Record<string, Adapter<any, { hasPartial: true }>>>(params: R): ParamsParser<O, I, Extra, R> {
+  params<R extends Record<string, Adapter<any, { hasPartial: true }>>>(params: R): ParamsParser<O, I, R> {
     this.rules.push({ tag: 'Params', params });
     return this as any;
   }
@@ -156,7 +154,7 @@ export class Parser<O, I=O, Extra={}> {
    * ```
    * @param that Another `Parser`
    */
-  concat<That extends Parser<any, any, any>>(that: That): Parser<O & That['_O'], I & That['_I'], Extra & That['_Extra']> {
+  concat<That extends Parser<any, any>>(that: That): Parser<O & That['_O'], I & That['_I']> {
     that.rules.forEach(x => this.rules.push(x));
     return this as any;
   }
@@ -173,7 +171,7 @@ export class Parser<O, I=O, Extra={}> {
    * ```
    * @param that Another `Parser`
    */
-  embed<K extends string, That extends Parser<any, any, any>>(key: K, that: That): Parser<O & { [k in K]: That['_O'] }, I & { [k in K]: That['_I'] }, Extra> {
+  embed<K extends string, That extends Parser<any, any>>(key: K, that: That): Parser<O & { [k in K]: That['_O'] }, I & { [k in K]: That['_I'] }> {
     this.rules.push({ tag: 'Embed', key, rules: that.rules.slice() });
     return this as any;
   }
@@ -195,45 +193,45 @@ export class Parser<O, I=O, Extra={}> {
    * ```
    * @param payload Object that will be merged with output
    */
-  extra<E>(payload: E): Parser<O & E, I, Extra & E> {
+  extra<E>(payload: E): Parser<O & E, I> {
     this.rules.push({ tag: 'Extra', payload } as any);
     return this as any;
   }
 
   /** Create a copy of `Parser` */
-  clone(): Parser<O, I, Extra> {
+  clone(): Parser<O, I> {
     return new Parser(this.rules.slice());
   }
 }
 
 
 /** Provide parser with a unique key in order to use it in `oneOf` */
-export function tag<T extends string>(tag: T): Parser<{ tag: T }, { tag: T }, { tag: T }> {
+export function tag<T extends string>(tag: T): Parser<{ tag: T }, { tag: T }> {
   return new Parser([{ tag: 'Extra', payload: { tag } }]);
 }
 
 
 /** @see `Parser.prototype.path` */
-export function path(segmentsStr: string): Parser<{}, {}, {}> {
+export function path(segmentsStr: string): Parser<{}, {}> {
   const segments = segmentsStr.split('/').filter(x => x !== '');
   return new Parser([{ tag: 'Path', segments }]);
 }
 
 
 /** @see `Parser.prototype.segment` */
-export function segment<K extends string, A extends Adapter<any, { hasTotal: true }>>(key: K, adapter: A): SegmentParser<{}, {}, {}, K, A> {
+export function segment<K extends string, A extends Adapter<any, { hasTotal: true }>>(key: K, adapter: A): SegmentParser<{}, {}, K, A> {
   return new Parser([{ tag: 'Segment', key, adapter }]);
 }
 
 
 /** @see `Parser.prototype.extra` */
-export function extra<E>(payload: E): Parser<E, {}, E> {
+export function extra<E>(payload: E): Parser<E, {}> {
   return new Parser([{ tag: 'Extra', payload }]);
 }
 
 
 /** @see `Parser.prototype.params` */
-export function params<R extends Record<string, Adapter<any, { hasPartial: true }>>>(params: R): ParamsParser<{}, {}, {}, R> {
+export function params<R extends Record<string, Adapter<any, { hasPartial: true }>>>(params: R): ParamsParser<{}, {}, R> {
   return new Parser([{ tag: 'Params', params }]);
 }
 
@@ -241,14 +239,14 @@ export function params<R extends Record<string, Adapter<any, { hasPartial: true 
 /**
  * Implement custom parser
  */
-export function custom<O, I=O>(parse: (s: ParserState) => Array<[O, ParserState]>, print: (a: I) => UrlChunks): Parser<O, I, {}> {
+export function custom<O, I=O>(parse: (s: ParserState) => Array<[O, ParserState]>, print: (a: I) => UrlChunks): Parser<O, I> {
   return new Parser([{ tag: 'Custom', parse, print }]);
 }
 
 
 // Shorthand for result of `oneOf`
-export type OneOfParser<P extends T> = Parser<P['_O'], P['_I'], {}>;
-export type T = Parser<any, any, { tag: string }>;
+export type OneOfParser<P extends T> = Parser<P['_O'], P['_I']>;
+export type T = Parser<{ tag: string }, { tag: string }>;
 
 
 /**
@@ -559,13 +557,13 @@ export interface PrefixTrie {
 
 
 // Result type for `Parser.prototype.segment`
-export type SegmentParser<O, I, Extra, K extends string, A extends Adapter<any, { hasTotal }>>
-  = Parser<O & { [K_ in K]: A['_A'] }, I & InParams<{ [K_ in K]: A['_A'] }>, Extra>;
+export type SegmentParser<O, I, K extends string, A extends Adapter<any, { hasTotal }>>
+  = Parser<O & { [K_ in K]: A['_A'] }, I & InParams<{ [K_ in K]: A['_A'] }>>;
 
 
 // Result type for `Parser.prototype.params`
-export type ParamsParser<O, I, Extra, R extends Record<string, Adapter<any, { hasPartial: true }>>>
-  = Parser<O & OutParams<R>, I & InParams<R>, Extra>;
+export type ParamsParser<O, I, R extends Record<string, Adapter<any, { hasPartial: true }>>>
+  = Parser<O & OutParams<R>, I & InParams<R>>;
 
 
 export type InParams<R extends Record<string, Adapter<any, any>>> = {
