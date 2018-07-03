@@ -198,6 +198,11 @@ export class Parser<O, I=O> {
     return this as any;
   }
 
+  /** Add additional fields to `I` */
+  toOutput(input: I): O {
+    throw new Error('Unimplemented');
+  }
+
   /** Create a copy of `Parser` */
   clone(): Parser<O, I> {
     return new Parser(this.rules.slice());
@@ -558,7 +563,7 @@ export interface PrefixTrie {
 
 // Result type for `Parser.prototype.segment`
 export type SegmentParser<O, I, K extends string, A extends Adapter<any, { hasTotal }>>
-  = Parser<O & { [K_ in K]: A['_A'] }, I & InParams<{ [K_ in K]: A['_A'] }>>;
+  = Parser<O & { [K_ in K]: A['_A'] }, I & InParams<{ [K_ in K]: A }>>;
 
 
 // Result type for `Parser.prototype.params`
