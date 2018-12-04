@@ -6,6 +6,7 @@ export {
   params,
   path,
   segment,
+  embed,
   tag,
 } from './parser';
 
@@ -16,12 +17,9 @@ export { parser as parser };
 export {
   Adapter,
   AdapterBase,
-  HasPartialAdapter,
-  HasTotalAdapter,
   NamedAdapter,
-  PartialAdapter,
-  PartialAndTotalAdapter,
-  TotalAdapter,
+  CustomAdapter,
+  HasAdapter,
   array,
   boolean,
   date,
@@ -30,10 +28,7 @@ export {
   nat,
   nestring,
   of,
-  partialAdapter,
-  partialAndTotalAdapter,
   string,
-  totalAdapter,
 } from './adapter';
 
 import * as adapter from './adapter';

@@ -1,20 +1,136 @@
-import { Expr } from './internal/expr';
-import { Option, some, none, traverse } from './option';
+import { Expr, absurd } from './internal/types';
+import { Option, some, none, traverse, None } from './option';
+import isEqual from './internal/isequal';
+
+
+// Aliases
+export type Adapter<A, F={}> =
+  | CustomAdapter<A, F>
+  | NamedAdapter<A, F>
+  | DefaultAdapter<A, F>
+  | DimapAdapter<A, F>
+  | HasAdapter<A, F>
+  ;
 
 
 // Type-level flags
 export type Flags = {
-  hasName?: true;
-  hasDefault?: true;
-  hasPartial?: true;
-  hasTotal?: true;
+  hasName: true;
+  hasDefault: true;
+  nonEmpty: true;
 };
 
 
-// Base class with instance methods
-export class AdapterBase<A, F extends Flags> {
+// Instance methods
+export class AdapterBase<A, F={}> {
   readonly _A: A;
   readonly _F: F;
+
+  apply(s: string): Option<A> {
+    const self = this as any as Adapter<A, F>;
+    
+    if (self instanceof CustomAdapter) {
+      return self._apply(s);
+    }
+
+    if (self instanceof NamedAdapter) {
+      return self._adapter.apply(s);
+    }
+
+    if (self instanceof DefaultAdapter) {
+      return self._adapter.apply(s);
+    }
+
+    if (self instanceof DimapAdapter) {
+      return self._adapter.apply(s).map(self._map);
+    }
+
+    if (self instanceof HasAdapter) {
+      return self.toAdapter().apply(s);
+    }
+
+    return absurd(self);
+  }
+
+  unapply(a: A): string {
+    const self = this as any as Adapter<A, F>;
+    
+    if (self instanceof CustomAdapter) {
+      return self._unapply(a);
+    }
+
+    if (self instanceof NamedAdapter) {
+      return self._adapter.unapply(a);
+    }
+
+    if (self instanceof DefaultAdapter) {
+      return self._adapter.unapply(a);
+    }
+
+    if (self instanceof DimapAdapter) {
+      return self._adapter.unapply(self._comap(a));
+    }
+
+    if (self instanceof HasAdapter) {
+      return self.toAdapter().unapply(a);
+    }
+    
+    return absurd(self);    
+  }
+
+  applyOption(s: Option<string>): Option<A> {
+    const self = this as any as Adapter<A, F>;
+    
+    if (self instanceof CustomAdapter) {
+      return s.chain(self._apply);
+    }
+
+    if (self instanceof NamedAdapter) {
+      return self._adapter.applyOption(s);
+    }
+
+    if (self instanceof DefaultAdapter) {
+      return s instanceof None ? some(self._default) : self._adapter.applyOption(s);
+    }
+
+    if (self instanceof DimapAdapter) {
+      return self._adapter.applyOption(s).map(self._map);
+    }
+
+    if (self instanceof HasAdapter) {
+      return self.toAdapter().applyOption(s);
+    }
+
+    return absurd(self);
+  }
+
+  
+  unapplyOption(a: A): Option<string> {
+    const self = this as any as Adapter<A, F>;
+    
+    if (self instanceof CustomAdapter) {
+      return some(self._unapply(a));
+    }
+
+    if (self instanceof NamedAdapter) {
+      return self._adapter.unapplyOption(a);
+    }
+
+    if (self instanceof DefaultAdapter) {
+      return isEqual(a, self._default) ? none : self._adapter.unapplyOption(a);
+    }
+
+    if (self instanceof DimapAdapter) {
+      return self._adapter.unapplyOption(self._comap(a));
+    }
+
+    if (self instanceof HasAdapter) {
+      return self.toAdapter().unapplyOption(a);
+    }
+
+    return absurd(self);    
+  }
+  
 
   /**
    * Set different parameter name compared to the name of the field
@@ -24,9 +140,8 @@ export class AdapterBase<A, F extends Flags> {
    * console.log(parser.print({ snakeCase: 42 }));  // => "home?snake_case=42"
    * ```
    */
-  withName(name: string): NamedAdapter<A, SetName<F>> {
-    const self = this as any as Adapter<A, F>;
-    return new NamedAdapter(self, name);
+  withName(name: string) {
+    return new NamedAdapter<A, F & { hasName: true }>(this as any, name);
   }
 
   /**
@@ -39,9 +154,8 @@ export class AdapterBase<A, F extends Flags> {
    * console.log(parser.print({ search: '', page: 1 })); // => "shop/items"
    * ```
    */
-  withDefault<B>(_default: B): Adapter<A|B, F & { hasDefault: true }> {
-    const self = this as any as Adapter<A|B, F>;
-    return new DefaultAdapter(self, _default);
+  withDefault<B>(_default: B) {
+    return new DefaultAdapter<A|B, F & { hasDefault: true }>(this as any, _default);
   }
 
   /**
@@ -59,94 +173,21 @@ export class AdapterBase<A, F extends Flags> {
    * console.log(parser.print({ choice: 1 })); // => "quiz?choice=one"
    * ```
    */
-  dimap<B>(proj: (a: A) => B, coproj: (b: B) => A): Adapter<B, F> {
-    const self = this as any as Adapter<A, F>;
-    switch (self.tag) {
-      case 'TotalAdapter': {
-        const applyTotal = (s: string) => self._applyTotal(s).map(proj);
-        const unapplyTotal = (b: B) => self._unapplyTotal(coproj(b));
-        const adapter = self._adapter ? self._adapter.dimap(proj, coproj) : undefined;
-        return new TotalAdapter(applyTotal, unapplyTotal, adapter);
-      }
-      case 'PartialAdapter': {
-        const applyPartial = (s: Option<string>) => self._applyPartial(s).map(proj);
-        const unapplyPartial = (b: B) => self._unapplyPartial(coproj(b));
-        const adapter = self._adapter ? self._adapter.dimap(proj, coproj) : undefined;
-        return new PartialAdapter(applyPartial, unapplyPartial, adapter);
-      }
-      case 'DefaultAdapter': {
-        return new DefaultAdapter(self._adapter.dimap(proj, coproj), proj(self._default));
-      }
-      case 'NamedAdapter': {
-        return new NamedAdapter(self._adapter.dimap(proj, coproj), self._name);
-      }
-    }
-  }
-
-
-  /** Find implementation of given flag */
-  getImpl<K extends keyof Flags, F extends { [K_ in K]: true }>(this: Adapter<A, F>, k: K): GetImpl<A>[K];
-  getImpl<K extends keyof Flags>(this: Adapter<A, any>, k: K): GetImpl<A>[K] | null;
-  getImpl<K extends keyof Flags>(this: Adapter<A, any>, k: K): GetImpl<A>[K] | null {
-    const self = this as any as Adapter<A, F>;
-    switch (self.tag) {
-      case 'TotalAdapter': {
-        if (k === 'hasTotal') return self;
-        if (self._adapter) return self._adapter.getImpl(k);
-        return null;
-      }
-      case 'PartialAdapter': {
-        if (k === 'hasPartial') return self;
-        if (self._adapter) return self._adapter.getImpl(k);
-        return null;
-      }
-      case 'NamedAdapter': {
-        if (k === 'hasName') return self;
-        return self._adapter.getImpl(k);
-      }
-      case 'DefaultAdapter': {
-        if (k === 'hasDefault') return self;
-        return self._adapter.getImpl(k);
-      }
-    }
+  dimap<B>(map: (a: A) => B, comap: (b: B) => A) {
+    return new DimapAdapter<B, F, A>(map, comap, this as any);
   }
 }
 
 
-/**
- * `TotalAdapter<A>` describes mutual correspondence between `string`
- * and `A`. These adapters are used in `r.array` and `r.segment`
- */
-export class TotalAdapter<A, F extends Flags> extends AdapterBase<A, F> {
-  readonly tag: 'TotalAdapter' = 'TotalAdapter';
-
+export class CustomAdapter<A, F={}> extends AdapterBase<A, F> {
   constructor(
-    readonly _applyTotal: (s: string) => Option<A>,
-    readonly _unapplyTotal: (a: A) => string,
-    readonly _adapter?: Adapter<A, any>,
+    readonly _apply: (s: string) => Option<A>,
+    readonly _unapply: (a: A) => string,
   ) { super(); }
 }
 
 
-/**
- * `PartialAdapter<A>` describes mutual correspondence between
- * `Option<string>` and `A`. These adapters are used in `r.param`
- */
-export class PartialAdapter<A, F extends Flags> extends AdapterBase<A, F> {
-  readonly tag: 'PartialAdapter' = 'PartialAdapter';
-
-  constructor(
-    readonly _applyPartial: (s: Option<string>) => Option<A>,
-    readonly _unapplyPartial: (a: A) => Option<string>,
-    readonly _adapter?: Adapter<A, any>,
-  ) { super(); }
-}
-
-
-/** Contains another adapter and its name */
-export class NamedAdapter<A, F extends Flags> extends AdapterBase<A, F> {
-  readonly tag: 'NamedAdapter' = 'NamedAdapter';
-
+export class NamedAdapter<A, F={}> extends AdapterBase<A, F> {
   constructor(
     readonly _adapter: Adapter<A, any>,
     readonly _name: string,
@@ -154,10 +195,7 @@ export class NamedAdapter<A, F extends Flags> extends AdapterBase<A, F> {
 }
 
 
-/** Default value */
-export class DefaultAdapter<A, F extends Flags> extends AdapterBase<A, F> {
-  readonly tag: 'DefaultAdapter' = 'DefaultAdapter';
-
+export class DefaultAdapter<A, F={}> extends AdapterBase<A, F> {
   constructor(
     readonly _adapter: Adapter<A, any>,
     readonly _default: A,
@@ -165,80 +203,61 @@ export class DefaultAdapter<A, F extends Flags> extends AdapterBase<A, F> {
 }
 
 
-// Aliases
-export type Adapter<A, F extends Flags> =
-  | PartialAdapter<A, F>
-  | TotalAdapter<A, F>
-  | NamedAdapter<A, F>
-  | DefaultAdapter<A, F>
-  ;
+export class DimapAdapter<A, F={}, B=any> extends AdapterBase<A, F> {
+  constructor(
+    readonly _map: (x: B) => A,
+    readonly _comap: (x: A) => B,
+    readonly _adapter: Adapter<B, F>,
+  ) { super(); }
+}
+
+export abstract class HasAdapter<A, F={}> extends AdapterBase<A, F> {
+  abstract toAdapter(): Adapter<A, F>;
+}
 
 
 /** Strings */
-const stringAdapter = new PartialAdapter<string, Partial>(
-  x => x, // applyPartial
-  some, // unapplyPartial
-);
+const stringAdapter = new CustomAdapter<string, {}>(some, x => x);
 export { stringAdapter as string };
 
 
 /** Non-empty strings */
-const nestringAdapter = new TotalAdapter<string, TotalAndPartial>(
-  x => x !== '' ? some(x) : none, // applyTotal
-  x => x, // unapplyTotal
-  new PartialAdapter<string, Partial>(
-    x => x.chain(str => str ? some(str) : none), // applyPartial
-    some, // unapplyPartial
-  ),
+const nestringAdapter = new CustomAdapter<string, { nonEmpty: true }>(
+  x => x !== '' ? some(x) : none,
+  x => x,
 );
 export { nestringAdapter as nestring };
 
 
 /** Natural numbers (0, 1, 2, ...) */
-const natAdapter = new TotalAdapter<number, TotalAndPartial>(
-  str => { const i = parseInt(str); return !isNaN(i) && i >= 0 ? some(i) : none; }, // applyTotal
-  String, // unapplyTotal
-  new PartialAdapter<number, Partial>(
-    x => x.chain(str => { const i = parseInt(str); return !isNaN(i) && i >= 0 ? some(i) : none; }), // applyPartial
-    x => some(String(x)), // unapplyPartial
-  ),
+const natAdapter = new CustomAdapter<number, { nonEmpty: true }>(
+  str => { const i = parseInt(str); return !isNaN(i) && i >= 0 ? some(i) : none; },
+  String,
 );
 export { natAdapter as nat };
 
 
 /** Integers (..., -1, 0, 1, 2, ...) */
-const intAdapter = new TotalAdapter<number, TotalAndPartial>(
-  str => { const i = parseInt(str); return !isNaN(i) ? some(i) : none; }, // applyTotal
-  String, // unapplyTotal
-  new PartialAdapter<number, Partial>(
-    x => x.chain(str => { const i = parseInt(str); return !isNaN(i) ? some(i) : none; }), // applyPartial
-    x => some(String(x)), // unapplyPartial
-  ),
+const intAdapter = new CustomAdapter<number, { nonEmpty: true }>(
+  str => { const i = parseInt(str); return !isNaN(i) ? some(i) : none; },
+  String,
 );
 export { intAdapter as int };
 
 
 /** Dates as iso-8601 */
-const iso8601Adapter = new TotalAdapter<Date, TotalAndPartial>(
-  str => { const d = new Date(str); return isNaN(d.valueOf()) ? none : some(d); }, // applyTotal
-  d => d.toISOString(), // unapplyTotal
-  new PartialAdapter<Date, Partial>(
-    x => x.chain(str => { const d = new Date(str); return isNaN(d.valueOf()) ? none : some(d); }), // applyPartial
-    d => some(d.toISOString()), // unapplyPartial
-  ),
+const iso8601Adapter = new CustomAdapter<Date>(
+  str => { const d = new Date(str); return isNaN(d.valueOf()) ? none : some(d); },
+  d => d.toISOString(),
 );
 export { iso8601Adapter as date };
 
 
 /** Booleans */
-const booleanAdapter = new TotalAdapter<boolean, TotalAndPartial>(
-  x => x === '' || x === 'false' || x === '0' || x === 'off' ? some(false) : some(true), // applyTotal
-  x => x ? 'true' : 'false', // unapplyTotal
-  new PartialAdapter<boolean, Partial>(
-    x => x.fold(some(false), () => some(true)), // applyPartial
-    x => x ? some('') : none,  // unapplyPartial
-  ),
-);
+const booleanAdapter = new CustomAdapter<boolean>(
+  x => x === '' || x === 'false' || x === '0' || x === 'off' ? some(false) : some(true),
+  x => x ? 'true' : 'false',
+).withDefault(false);
 export { booleanAdapter as boolean };
 
 
@@ -252,14 +271,10 @@ export { booleanAdapter as boolean };
  * console.log(parser.print({ statuses: ['pending', 'scheduled'] })); // => "todos?statuses=pending,scheduled"
  * ```
  */
-export function array<A, F extends { hasTotal: true }>(adapter: Adapter<A, F>): Adapter<A[], TotalAndPartial> {
-  return new TotalAdapter<A[], TotalAndPartial>(
-    str => traverse(parseCsv(str), x => adapter.getImpl('hasTotal')._applyTotal(x)), // applyTotal
-    arr => printCsv(arr.map(x => adapter.getImpl('hasTotal')._unapplyTotal(x))), // unapplyTotal
-    new PartialAdapter<A[], Partial>(
-      x => x.chain(str => traverse(parseCsv(str), x => adapter.getImpl('hasTotal')._applyTotal(x))), // applyPartial
-      arr => some(printCsv(arr.map(x => adapter.getImpl('hasTotal')._unapplyTotal(x)))), // unapplyPartial
-    )
+export function array<A>(adapter: Adapter<A>): CustomAdapter<A[]> {
+  return new CustomAdapter<A[]>(
+    str => traverse(parseCsv(str), x => adapter.apply(x)), 
+    xs => printCsv(xs.map(x => adapter.unapply(x))),
   );
 }
 
@@ -276,79 +291,36 @@ export function array<A, F extends { hasTotal: true }>(adapter: Adapter<A, F>): 
  * console.log(parser.parse('fruits/potato')); // => null
  * ```
  */
-export function literals<A extends string>(a: A): Adapter<A, TotalAndPartial>;
-export function literals<A extends string, B extends string>(a: A, b: B): Adapter<A|B, TotalAndPartial>;
-export function literals<A extends string, B extends string, C extends string>(a: A, b: B, c: C): Adapter<A|B|C, TotalAndPartial>;
-export function literals<A extends string, B extends string, C extends string, D extends string>(a: A, b: B, c: C, d: D): Adapter<A|B|C|D, TotalAndPartial>;
-export function literals<A extends string, B extends string, C extends string, D extends string, E extends string>(a: A, b: B, c: C, d: D, e: E): Adapter<A|B|C|D|E, TotalAndPartial>;
-export function literals<array extends Array<Expr>>(array: array): Adapter<array[number], TotalAndPartial>;
-export function literals(): Adapter<string, TotalAndPartial> {
+export function literals<A extends string[]>(...a: A): Adapter<A>;
+export function literals<array extends Array<Expr>>(array: array): Adapter<array[number]>;
+export function literals(): Adapter<string> {
   const literals: ArrayLike<string> = Array.isArray(arguments[0]) ? arguments[0] : arguments;
-  const applyTotal = str => {
+  const apply = str => {
     for (let i = 0; i < literals.length; i++) if (literals[i] === str) return some(str);
     return none;
   };
-  const unapplyTotal = x => x;
-  const applyPartial = (maybeStr: Option<string>) => maybeStr.chain(applyTotal);
-  const unapplyPartial = some;
-  return new TotalAdapter(applyTotal, unapplyTotal, new PartialAdapter(applyPartial, unapplyPartial));
+  const unapply = x => x;
+  return new CustomAdapter(apply, unapply);
 }
 
 
 /** Create adapter that always succeeds with the given value */
-export function of<A extends Expr>(a: A): Adapter<A, TotalAndPartial> {
+export function of<A extends Expr>(a: A): CustomAdapter<A, {}> {
   const applyTotal = () => some(a);
   const unapplyTotal = () => '';
-  const applyPartial = applyTotal;
-  const unapplyPartial = () => none;
-  return new TotalAdapter(applyTotal, unapplyTotal, new PartialAdapter(applyPartial, unapplyPartial));
-}
-
-
-/** Constructor for `PartialAdapter` */
-export function partialAdapter<A>(applyPartial: (s: Option<string>) => Option<A>, unapplyPartial: (a: A) => Option<string>): PartialAdapter<A, Partial> {
-  return new PartialAdapter(applyPartial, unapplyPartial);
+  return new CustomAdapter(applyTotal, unapplyTotal);
 }
 
 
 /** Constructor for `TotalAdapter` */
-export function totalAdapter<A>(applyTotal: (s: string) => Option<A>, unapplyTotal: (a: A) => string): TotalAdapter<A, Total> {
-  return new TotalAdapter(applyTotal, unapplyTotal);
+export function custom<A>(apply: (s: string) => Option<A>, unapply: (a: A) => string) {
+  return new CustomAdapter<A>(apply, unapply);
 }
-
-
-// /** Constructor for `PartialAndTotalAdapter` */
-// export function partialAndTotalAdapter<A>(
-//   applyTotal: (s: string) => Option<A>,
-//   unapplyTotal: (a: A) => string,
-//   applyPartial: (s: Option<string>) => Option<A>,
-//   unapplyPartial: (a: A) => Option<string>,
-// ): PartialAndTotalAdapter<A> {
-//   return new PartialAndTotalAdapter<A>(applyTotal, unapplyTotal, applyPartial, unapplyPartial);
-// }
 
 
 // -- Helpers --
 
-
-// Types
-export type Omit<T, K extends keyof T> = Pick<T, Exclude<keyof T, K>>;
-export type SetName<F extends Flags> = Omit<Flags, 'hasName'> & { hasName: true };
-export type SetDefault<F extends Flags> = Omit<Flags, 'hasDefault'> & { hasDefault: true };
-export type SetPartial<F extends Flags> = Omit<Flags, 'hasPartial'> & { hasPartial: true };
-export type SetTotal<F extends Flags> = Omit<Flags, 'hasTotal'> & { hasTotal: true };
-export type Partial = { hasPartial: true };
-export type Total = { hasPartial: true };
-export type TotalAndPartial = { hasTotal: true, hasPartial: true };
-export interface GetImpl<T> {
-  hasName: NamedAdapter<T, any>;
-  hasDefault: DefaultAdapter<T, any>;
-  hasTotal: TotalAdapter<T, any>;
-  hasPartial: PartialAdapter<T, any>;
-}
-
-
-// escape and join given array of strings
+// Escape and join given array of strings
 function printCsv(values: Array<string>): string {
   if (values.length === 1 && values[0] === '') return '""';
   return values.map(str => {
@@ -365,7 +337,7 @@ function printCsv(values: Array<string>): string {
 }
 
 
-// parse comma-separated string into an array
+// Parse comma-separated string into an array
 function parseCsv(str: string): Array<string> {
   if (str === '""') return [''];
   const output = [] as Array<string>;

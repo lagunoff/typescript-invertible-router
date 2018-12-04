@@ -1,4 +1,5 @@
-import { Expr } from './internal/expr';
+import { Expr } from './internal/types';
+import { absurd } from './internal/types';
 
 
 // Aliases
@@ -10,31 +11,36 @@ export type Maybe<a> = Option<a>;
 export class OptionBase<A> {
   readonly _A: A;
 
+  isSome(): this is Some<A> {
+    return this instanceof Some;
+  }
+
+  isNone(): this is None<A> {
+    return this instanceof None;
+  }
+
   /** Apply function `f` to the underlying value */
-  map<B>(f: (a: A) => B): Option<B> {
+  map<B>(proj: (a: A) => B): Option<B> {
     const self = this as any as Option<A>;
-    switch (self.tag) {
-      case 'None': return self as any;
-      case 'Some': return new Some(f(self.value));
-    }
+    if (self instanceof None) return self as any;
+    if (self instanceof Some) return new Some(proj(self.value));
+    return absurd(self);
   }
 
   /** Extract value from `this` then apply `f` to the result */
   chain<B>(f: (a: A) => Option<B>): Option<B> {
     const self = this as any as Option<A>;
-    switch (self.tag) {
-      case 'None': return self as any;
-      case 'Some': return f(self.value);
-    }
+    if (self instanceof None) return self as any;
+    if (self instanceof Some) return f(self.value);
+    return absurd(self);
   }
 
   /** Unwrap underlying value */
   fold<B extends Expr, C extends Expr>(fromNone: B, fromSome: (x: A) => C): B|C {
     const self = this as any as Option<A>;
-    switch (self.tag) {
-      case 'None': return fromNone;
-      case 'Some': return fromSome(self.value);
-    }
+    if (self instanceof None) return fromNone;
+    if (self instanceof Some) return fromSome(self.value);
+    return absurd(self);
   }
 
   /** Unwrap value by providing result for `None` case */
@@ -45,10 +51,9 @@ export class OptionBase<A> {
   /** Similar to `||` operation with nullable types */
   or<B>(that: Option<B>): Option<B|A> {
     const self = this as any as Option<A>;
-    switch (self.tag) {
-      case 'None': return that;
-      case 'Some': return self;
-    }
+    if (self instanceof None) return that;
+    if (self instanceof Some) return self;
+    return absurd(self);
   }  
 }
 
@@ -59,14 +64,12 @@ export class OptionBase<A> {
  */
 export class None<A> extends OptionBase<A> {
   readonly _A: A;
-  readonly tag: 'None' = 'None';
 }
 
 
 /** Contains one single value */
 export class Some<A> extends OptionBase<A> {
   readonly _A: A;
-  readonly tag: 'Some' = 'Some';
   
   constructor(
     readonly value: A,
@@ -89,10 +92,8 @@ export function traverse<A, B>(xs: Array<A>, f: (a: A) => Option<B>): Option<B[]
   const output = [] as B[];
   for (const el of xs) {
     const option = f(el);
-    switch (option.tag) {
-      case 'None': return none;
-      case 'Some': output.push(option.value); break;
-    }
+    if (option instanceof None) return none;
+    if (option instanceof Some) output.push(option.value);
   }
   return new Some(output);
 }

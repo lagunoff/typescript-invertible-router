@@ -1,54 +1,53 @@
  * [src/parser.ts](#srcparserts)
-   * [class ParserState](#classparserstate)
-   * [class Parser](#classparser)
-   * [Parser.prototype.parse](#parserprototypeparse)
-   * [Parser.prototype.print](#parserprototypeprint)
-   * [Parser.prototype.parseAll](#parserprototypeparseall)
-   * [Parser.prototype.path](#parserprototypepath)
-   * [Parser.prototype.segment](#parserprototypesegment)
-   * [Parser.prototype.params](#parserprototypeparams)
-   * [Parser.prototype.concat](#parserprototypeconcat)
-   * [Parser.prototype.embed](#parserprototypeembed)
-   * [Parser.prototype.extra](#parserprototypeextra)
-   * [Parser.prototype.clone](#parserprototypeclone)
+   * [class ParserBase](#classparserbase)
+   * [ParserBase.prototype.parse](#parserbaseprototypeparse)
+   * [ParserBase.prototype.print](#parserbaseprototypeprint)
+   * [ParserBase.prototype.parseAll](#parserbaseprototypeparseall)
+   * [ParserBase.prototype.path](#parserbaseprototypepath)
+   * [ParserBase.prototype.segment](#parserbaseprototypesegment)
+   * [ParserBase.prototype.params](#parserbaseprototypeparams)
+   * [ParserBase.prototype.merge](#parserbaseprototypemerge)
+   * [ParserBase.prototype.embed](#parserbaseprototypeembed)
+   * [ParserBase.prototype.extra](#parserbaseprototypeextra)
+   * [ParserBase.prototype.toOutput](#parserbaseprototypetooutput)
+   * [ParserBase.prototype.toParser](#parserbaseprototypetoparser)
    * [tag](#tag)
    * [custom](#custom)
    * [oneOf](#oneof)
+   * [class ParserState](#classparserstate)
  * [src/adapter.ts](#srcadapterts)
    * [AdapterBase.prototype.withName](#adapterbaseprototypewithname)
    * [AdapterBase.prototype.withDefault](#adapterbaseprototypewithdefault)
    * [AdapterBase.prototype.dimap](#adapterbaseprototypedimap)
-   * [class TotalAdapter](#classtotaladapter)
-   * [class PartialAdapter](#classpartialadapter)
-   * [class PartialAndTotalAdapter](#classpartialandtotaladapter)
-   * [class NamedAdapter](#classnamedadapter)
    * [array](#array)
    * [literals](#literals)
    * [of](#of)
-   * [partialAdapter](#partialadapter)
-   * [totalAdapter](#totaladapter)
-   * [partialAndTotalAdapter](#partialandtotaladapter)
+   * [custom](#custom)
  * [src/option.ts](#srcoptionts)
    * [OptionBase.prototype.map](#optionbaseprototypemap)
    * [OptionBase.prototype.chain](#optionbaseprototypechain)
    * [OptionBase.prototype.fold](#optionbaseprototypefold)
    * [OptionBase.prototype.withDefault](#optionbaseprototypewithdefault)
+   * [OptionBase.prototype.or](#optionbaseprototypeor)
    * [class None](#classnone)
    * [class Some](#classsome)
    * [traverse](#traverse)
+ * [src/internal/types.ts](#srcinternaltypests)
+   * [absurd](#absurd)
+ * [src/internal/parser-iterator.ts](#srcinternalparseriteratorts)
+   * [default](#default)
+ * [src/internal/prepare-oneof.ts](#srcinternalprepareoneofts)
 
 
 ## src/parser.ts
 
-### class ParserState
+### class ParserBase
 
-Internal parser state 
-
-### class Parser
-
-`Parser` represents mutual correspondence between strings of
-relative urls and some intermediate data structure, usually named
-`Route`
+`Parser` defines mutual correspondence between strings (relative
+urls) (e.g. "/" "/shop" "/blog?tags=art") and some intermediate
+data structure, usually named `Route`. Parser maybe is a misleading
+name, because besides parsing it also does the opposite operation,
+printing.
 
 ```ts
 type Route = 
@@ -68,7 +67,7 @@ console.log(parser.print({ tag: 'Blog', category: 'science', page: 3 })); // => 
 console.log(parser.print({ tag: 'Home' })); // => ""
 ```
 
-### Parser.prototype.parse
+### ParserBase.prototype.parse
 
 ```
 parse(url: string): O;
@@ -76,26 +75,37 @@ parse(url: string): O;
 
 Try to match given string against the rules 
 
-### Parser.prototype.print
+### ParserBase.prototype.print
 
 ```
 print(route: I): string;
 ```
 
-Convert result of parsing back into url. Reverse of `parse` 
+Convert result of parsing back into url. Inverse of `parse` 
 
-### Parser.prototype.parseAll
+### ParserBase.prototype.parseAll
 
 ```
 parseAll(url: string): O[];
 ```
 
-Return all matches 
+Similar to `parse`, but returns all succeeded routes, not just
+the "best fit"
 
-### Parser.prototype.path
+```ts
+const parser = r.oneOf(
+   r.tag('Home').path('/'),
+   r.tag('Shop').path('/shop'),
+   r.tag('Item').path('/shop/item').segment('id', r.nestring),
+);
+console.log(parser.parseAll('/shop/item/42'));
+// => [{ tag: 'Item', id: '42' }, { tag: 'Shop' }, { tag: 'Home' }]
+```
+
+### ParserBase.prototype.path
 
 ```
-path(path: string): Parser<O, I, Extra>;
+path(path: string): Parser<O, I>;
 ```
 
 Add path segments to parser
@@ -105,29 +115,29 @@ const parser = t.tag('Contacts').path('/my/contacts/');
 console.log(parser.print({ tag: 'Contacts' })); // => "my/contacts"
 ```
 
-### Parser.prototype.segment
+### ParserBase.prototype.segment
 
 ```
-segment<K extends string, B>(key: K, adapter: HasTotalAdapter<B>): Parser<O & { [k in K]: B; }, I & { [k in K]: B; }, Extra>;
+segment<K extends string, A extends Adapter<any, {}>>(key: K, adapter: A): Parser<O & { [K_ in K]: A["_A"]; }, I & { [K in Exclude<K, { [K in K]: { [K_ in K]: A; }[K] extends Adapter<infer A, { hasDefault: true; }> ? K : never; }[K]>]: { [K_ in K]: A; }[K] extends Adapter<infer A, any> ? A : never; } & { [K in { [K in K]: { [K_ in K]: A; }[K] extends Adapter<infer A, { hasDefault: true; }> ? K : never; }[K]]?: { [K_ in K]: A; }[K] extends Adapter<infer A, any> ? A : never; }>;
 ```
 
-Parse one path segment
+Check one path segment with adapter and store the result in the
+given field
 
 ```ts
-const categoryAdapter = r.literals('electronics', 'art', 'music');
-const parser = r.path('/category').segment('category', categoryAdapter).segment('page', r.nat);
+const parser = r.path('/shop').segment('category', r.nestring).segment('page', r.nat);
 console.log(parser.parse('/category/art/10')); // => { category: "art", page: 10 }
 console.log(parser.parse('/category/art')); // => null
 console.log(parser.print({ category: 'music', page: 1 })); // => "category/music/1"
 ```
 
-### Parser.prototype.params
+### ParserBase.prototype.params
 
 ```
-params<Keys extends Record<string, HasPartialAdapter<any>>>(params: Keys): Parser<O & { [k in keyof Keys]: Keys[k]["_A"]; }, I & { [k in keyof Keys]: Keys[k]["_A"]; }, Extra>;
+params<R extends Record<string, Adapter<any, {}>>>(params: R): Parser<O & OutParams<R>, I & { [K in Exclude<keyof R, { [K in keyof R]: R[K] extends Adapter<infer A, { hasDefault: true; }> ? K : never; }[keyof R]>]: R[K] extends Adapter<infer A, any> ? A : never; } & { [K in { [K in keyof R]: R[K] extends Adapter<infer A, { hasDefault: true; }> ? K : never; }[keyof R]]?: R[K] extends Adapter<infer A, any> ? A : never; }>;
 ```
 
-Add query string parameters
+Check query string parameters
 
 ```ts
 const parser = r.path('/shop/items').params({ offset: r.nat.withDefault(0), limit: r.nat.withDefault(20), search: r.string.withDefault('') });
@@ -135,14 +145,14 @@ console.log(parser.parse('/shop/items')); // => { offset: 0, limit: 20, search: 
 console.log(parser.print({ offset: 20, limit: 20, search: "bana" })); // => "shop/items?offset=20&search=bana"
 ```
 
-### Parser.prototype.concat
+### ParserBase.prototype.merge
 
 ```
-concat<That extends Parser<any, any, any>>(that: That): Parser<O & That["_O"], I & That["_I"], Extra & That["_Extra"]>;
+merge<That extends Parser<any, any>>(that: That): Parser<O & That["_O"], I & That["_I"]>;
 ```
 
 Join two parsers together. Underlying types will be combined through
-intersection. That is fields will be merged
+intersection. That is, the fields will be merged
 
 ```ts
 const blog = r.path('/blog').params({ page: r.nat.withDefault(1) });
@@ -151,14 +161,14 @@ console.log(parser.parse('/website/blog')); // => { tag: "Blog", page: 1 }
 console.log(parser.print({ tag: "Blog", page: 10 })); // => "website/blog?page=10"
 ```
 
-### Parser.prototype.embed
+### ParserBase.prototype.embed
 
 ```
-embed<K extends string, That extends Parser<any, any, any>>(key: K, that: That): Parser<O & { [k in K]: That["_O"]; }, I & { [k in K]: That["_I"]; }, Extra>;
+embed<K extends string, That extends Parser<any, any>>(key: K, that: That): Parser<O & { [k in K]: That["_O"]; }, I & { [k in K]: That["_I"]; }>;
 ```
 
-Join two parsers together. Result of the second will be stored in
-the field `key`
+Join two parsers together. Result of the second parser will be
+stored in the field `key`
 
 ```ts
 const blog = r.path('/blog').params({ page: r.nat.withDefault(1) });
@@ -167,10 +177,10 @@ console.log(parser.parse('/website/blog')); // => { tag: "Blog", page: 1 }
 console.log(parser.print({ tag: "Blog", page: 10 })); // => "website/blog?page=10"
 ```
 
-### Parser.prototype.extra
+### ParserBase.prototype.extra
 
 ```
-extra<E>(payload: E): Parser<O & E, I, Extra & E>;
+extra<E extends {}>(payload: E): Parser<O & E, I>;
 ```
 
 Add some extra fields to the output. These fields are not
@@ -188,26 +198,34 @@ console.log(parser.parse('/contacts')); // => { tag: "Contacts", component: Shop
 console.log(parser.print({ tag: "Contacts" })); // => "contacts"
 ```
 
-### Parser.prototype.clone
+### ParserBase.prototype.toOutput
 
 ```
-clone(): Parser<O, I, Extra>;
+toOutput(input: I): O;
 ```
 
-Create a new copy of `Parser` 
+Add additional fields to `I` 
+
+### ParserBase.prototype.toParser
+
+```
+toParser(): Parser<O, I>;
+```
+
+Type coersion 
 
 ### tag
 
 ```
-function tag<T extends string>(tag: T): Parser<{ tag: T; }, { tag: T; }, { tag: T; }>;
+function tag<T extends string>(tag: T): Parser<{ tag: T; }, { tag: T; }>;
 ```
 
-Tag route with a uniq key in order to use in `oneOf` 
+Provide parser with a unique key in order to use it in `oneOf` 
 
 ### custom
 
 ```
-function custom<O, I = O>(parse: (s: ParserState) => [O, ParserState][], print: (a: I) => [string[], Record<string, string>]): Parser<O, I, {}>;
+function custom<O, I = O>(parse: (s: ParserState) => [O, ParserState][], print: (a: I) => [string[], Record<string, string>]): Custom<O, I>;
 ```
 
 Implement custom parser
@@ -215,16 +233,8 @@ Implement custom parser
 ### oneOf
 
 ```
-function oneOf<P1 extends Parser<any, any, { tag: string; }>>(a: P1): Parser<P1["_O"], P1["_I"], {}>;
-function oneOf<P1 extends Parser<any, any, { tag: string; }>, P2 extends Parser<any, any, { tag: string; }>>(a: P1, b: P2): Parser<(P1 | P2)["_O"], (P1 | P2)["_I"], {}>;
-function oneOf<P1 extends Parser<any, any, { tag: string; }>, P2 extends Parser<any, any, { tag: string; }>, P3 extends Parser<any, any, { tag: string; }>>(a: P1, b: P2, c: P3): Parser<(P1 | P2 | P3)["_O"], (P1 | P2 | P3)["_I"], {}>;
-function oneOf<P1 extends Parser<any, any, { tag: string; }>, P2 extends Parser<any, any, { tag: string; }>, P3 extends Parser<any, any, { tag: string; }>, P4 extends Parser<any, any, { tag: string; }>>(a: P1, b: P2, c: P3, d: P4): Parser<(P1 | P2 | P3 | P4)["_O"], (P1 | P2 | P3 | P4)["_I"], {}>;
-function oneOf<P1 extends Parser<any, any, { tag: string; }>, P2 extends Parser<any, any, { tag: string; }>, P3 extends Parser<any, any, { tag: string; }>, P4 extends Parser<any, any, { tag: string; }>, P5 extends Parser<any, any, { tag: string; }>>(a: P1, b: P2, c: P3, d: P4, e: P5): Parser<(P1 | P2 | P3 | P4 | P5)["_O"], (P1 | P2 | P3 | P4 | P5)["_I"], {}>;
-function oneOf<P1 extends Parser<any, any, { tag: string; }>, P2 extends Parser<any, any, { tag: string; }>, P3 extends Parser<any, any, { tag: string; }>, P4 extends Parser<any, any, { tag: string; }>, P5 extends Parser<any, any, { tag: string; }>, P6 extends Parser<any, any, { tag: string; }>>(a: P1, b: P2, c: P3, d: P4, e: P5, f: P6): Parser<(P1 | P2 | P3 | P4 | P5 | P6)["_O"], (P1 | P2 | P3 | P4 | P5 | P6)["_I"], {}>;
-function oneOf<P1 extends Parser<any, any, { tag: string; }>, P2 extends Parser<any, any, { tag: string; }>, P3 extends Parser<any, any, { tag: string; }>, P4 extends Parser<any, any, { tag: string; }>, P5 extends Parser<any, any, { tag: string; }>, P6 extends Parser<any, any, { tag: string; }>, P7 extends Parser<any, any, { tag: string; }>>(a: P1, b: P2, c: P3, d: P4, e: P5, f: P6, g: P7): Parser<(P1 | P2 | P3 | P4 | P5 | P6 | P7)["_O"], (P1 | P2 | P3 | P4 | P5 | P6 | P7)["_I"], {}>;
-function oneOf<P1 extends Parser<any, any, { tag: string; }>, P2 extends Parser<any, any, { tag: string; }>, P3 extends Parser<any, any, { tag: string; }>, P4 extends Parser<any, any, { tag: string; }>, P5 extends Parser<any, any, { tag: string; }>, P6 extends Parser<any, any, { tag: string; }>, P7 extends Parser<any, any, { tag: string; }>, P8 extends Parser<any, any, { tag: string; }>>(a: P1, b: P2, c: P3, d: P4, e: P5, f: P6, g: P7, h: P8): Parser<(P1 | P2 | P3 | P4 | P5 | P6 | P7 | P8)["_O"], (P1 | P2 | P3 | P4 | P5 | P6 | P7 | P8)["_I"], {}>;
-function oneOf<P1 extends Parser<any, any, { tag: string; }>, P2 extends Parser<any, any, { tag: string; }>, P3 extends Parser<any, any, { tag: string; }>, P4 extends Parser<any, any, { tag: string; }>, P5 extends Parser<any, any, { tag: string; }>, P6 extends Parser<any, any, { tag: string; }>, P7 extends Parser<any, any, { tag: string; }>, P8 extends Parser<any, any, { tag: string; }>, P9 extends Parser<any, any, { tag: string; }>>(a: P1, b: P2, c: P3, d: P4, e: P5, f: P6, g: P7, h: P8, i: P9): Parser<(P1 | P2 | P3 | P4 | P5 | P6 | P7 | P8 | P9)["_O"], (P1 | P2 | P3 | P4 | P5 | P6 | P7 | P8 | P9)["_I"], {}>;
-function oneOf<array extends Parser<any, any, { tag: string; }>[]>(array: array): Parser<array[number]["_O"], array[number]["_I"], {}>;
+function oneOf<P extends Parser<{ tag: string; }, { tag: string; }>[]>(...args: P): Parser<P[number]["_O"], P[number]["_I"]>;
+function oneOf<P extends Parser<{ tag: string; }, { tag: string; }>[]>(array: P): Parser<P[number]["_O"], P[number]["_I"]>;
 ```
 
 Combine multiple alternative parsers. All parsers should be
@@ -241,6 +251,10 @@ console.log(parser.parse('/second')); // => { tag: "Second" }
 console.log(parser.print({ tag: 'Third' })); // => "third"
 ```
 
+### class ParserState
+
+Internal parser state 
+
 
 
 ## src/adapter.ts
@@ -248,7 +262,7 @@ console.log(parser.print({ tag: 'Third' })); // => "third"
 ### AdapterBase.prototype.withName
 
 ```
-withName(this: HasPartialAdapter<A>, name: string): NamedAdapter<A>;
+withName(name: string): NamedAdapter<A, F & { hasName: true; }>;
 ```
 
 Set different parameter name compared to the name of the field
@@ -261,11 +275,7 @@ console.log(parser.print({ snakeCase: 42 }));  // => "home?snake_case=42"
 ### AdapterBase.prototype.withDefault
 
 ```
-withDefault(this: TotalAdapter<A>, defaultVal: A): TotalAdapter<A>;
-withDefault<B>(this: PartialAndTotalAdapter<A>, defaultVal: B): PartialAdapter<A | B>;
-withDefault<B>(this: PartialAdapter<A>, defaultVal: B): PartialAdapter<A | B>;
-withDefault<B>(this: NamedAdapter<A>, defaultVal: B): NamedAdapter<A | B>;
-withDefault<B>(this: Adapter<A>, defaultVal: B): Adapter<A | B>;
+withDefault<B>(_default: B): DefaultAdapter<A | B, F & { hasDefault: true; }>;
 ```
 
 Provide default value, new adapter will always succeed
@@ -280,11 +290,7 @@ console.log(parser.print({ search: '', page: 1 })); // => "shop/items"
 ### AdapterBase.prototype.dimap
 
 ```
-dimap<B>(this: TotalAdapter<A>, f: (a: A) => B, g: (b: B) => A): TotalAdapter<B>;
-dimap<B>(this: PartialAndTotalAdapter<A>, f: (a: A) => B, g: (b: B) => A): PartialAndTotalAdapter<B>;
-dimap<B>(this: PartialAdapter<A>, f: (a: A) => B, g: (b: B) => A): PartialAdapter<B>;
-dimap<B>(this: NamedAdapter<A>, f: (a: A) => B, g: (b: B) => A): NamedAdapter<B>;
-dimap<B>(this: Adapter<A>, f: (a: A) => B, g: (b: B) => A): Adapter<B>;
+dimap<B>(map: (a: A) => B, comap: (b: B) => A): DimapAdapter<B, F, A>;
 ```
 
 Change type variable inside `Adapter`, similar to
@@ -301,28 +307,10 @@ console.log(parser.parse('/quiz?choice=three')); // => { choice: 3 }
 console.log(parser.print({ choice: 1 })); // => "quiz?choice=one"
 ```
 
-### class TotalAdapter
-
-`TotalAdapter<A>` describes mutual correspondence between `string`
-and `A`. These adapters are used in `r.array` and `r.segment`
-
-### class PartialAdapter
-
-`PartialAdapter<A>` describes mutual correspondence between
-`Option<string>` and `A`. These adapters are used in `r.param`
-
-### class PartialAndTotalAdapter
-
-Combination of `TotalAdapter<A>` and `PartialAdapter<A>` 
-
-### class NamedAdapter
-
-Contains another adapter and its name 
-
 ### array
 
 ```
-function array<A>(adapter: HasTotalAdapter<A>): PartialAndTotalAdapter<A[]>;
+function array<A>(adapter: Adapter<A, {}>): CustomAdapter<A[], {}>;
 ```
 
 Comma-separated list
@@ -337,12 +325,8 @@ console.log(parser.print({ statuses: ['pending', 'scheduled'] })); // => "todos?
 ### literals
 
 ```
-function literals<A extends string>(a: A): PartialAndTotalAdapter<A>;
-function literals<A extends string, B extends string>(a: A, b: B): PartialAndTotalAdapter<A | B>;
-function literals<A extends string, B extends string, C extends string>(a: A, b: B, c: C): PartialAndTotalAdapter<A | B | C>;
-function literals<A extends string, B extends string, C extends string, D extends string>(a: A, b: B, c: C, d: D): PartialAndTotalAdapter<A | B | C | D>;
-function literals<A extends string, B extends string, C extends string, D extends string, E extends string>(a: A, b: B, c: C, d: D, e: E): PartialAndTotalAdapter<A | B | C | D | E>;
-function literals<array extends Expr[]>(array: array): PartialAndTotalAdapter<array[number]>;
+function literals<A extends string[]>(...a: A): Adapter<A, {}>;
+function literals<array extends Expr[]>(array: array): Adapter<array[number], {}>;
 ```
 
 Union of string literals
@@ -359,34 +343,18 @@ console.log(parser.parse('fruits/potato')); // => null
 ### of
 
 ```
-function of<A extends Expr>(a: A): PartialAndTotalAdapter<A>;
+function of<A extends Expr>(a: A): CustomAdapter<A, {}>;
 ```
 
 Create adapter that always succeeds with the given value 
 
-### partialAdapter
+### custom
 
 ```
-function partialAdapter<A>(applyPartial: (s: Option<string>) => Option<A>, unapplyPartial: (a: A) => Option<string>): PartialAdapter<A>;
-```
-
-Constructor for `PartialAdapter` 
-
-### totalAdapter
-
-```
-function totalAdapter<A>(applyTotal: (s: string) => Option<A>, unapplyTotal: (a: A) => string): TotalAdapter<A>;
+function custom<A>(apply: (s: string) => Option<A>, unapply: (a: A) => string): CustomAdapter<A, {}>;
 ```
 
 Constructor for `TotalAdapter` 
-
-### partialAndTotalAdapter
-
-```
-function partialAndTotalAdapter<A>(applyTotal: (s: string) => Option<A>, unapplyTotal: (a: A) => string, applyPartial: (s: Option<string>) => Option<A>, unapplyPartial: (a: A) => Option<string>): PartialAndTotalAdapter<A>;
-```
-
-Constructor for `PartialAndTotalAdapter` 
 
 
 
@@ -395,7 +363,7 @@ Constructor for `PartialAndTotalAdapter`
 ### OptionBase.prototype.map
 
 ```
-map<B>(f: (a: A) => B): Option<B>;
+map<B>(proj: (a: A) => B): Option<B>;
 ```
 
 Apply function `f` to the underlying value 
@@ -424,6 +392,14 @@ withDefault<B extends Expr>(fromNone: B): A | B;
 
 Unwrap value by providing result for `None` case 
 
+### OptionBase.prototype.or
+
+```
+or<B>(that: Option<B>): Option<A | B>;
+```
+
+Similar to `||` operation with nullable types 
+
 ### class None
 
 Class which instances represent absence of value, similar to `null` and
@@ -448,5 +424,34 @@ const divisors2 = [0, 1, 2, 3];
 console.log(traverse(divisors1, b => safeDiv(10, b))); // => Some { value: [...] }
 console.log(traverse(divisors2, b => safeDiv(10, b))); // => None { }
 ```
+
+
+
+## src/internal/types.ts
+
+### absurd
+
+```
+function absurd(x: never): any;
+```
+
+Helper for totality checking 
+
+
+
+## src/internal/parser-iterator.ts
+
+### default
+
+```
+function default<O, I>(parser: Parser<O, I>): IterableIterator<Parser<O, I>>;
+```
+
+Iterative tree traversal as described
+https://www.geeksforgeeks.org/iterative-postorder-traversal-using-stack/
+
+
+
+## src/internal/prepare-oneof.ts
 
 

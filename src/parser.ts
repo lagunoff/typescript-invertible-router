@@ -1,6 +1,9 @@
-import { some, none } from './option';
-import { Adapter } from './adapter';
+import { some, none, Option, Some, None } from './option';
+import { Adapter, CustomAdapter, NamedAdapter, DimapAdapter, DefaultAdapter, HasAdapter } from './adapter';
 import isEqual from './internal/isequal';
+import makeIterator from './internal/parser-iterator';
+import prepareOneOf from './internal/prepare-oneof';
+import { absurd } from './internal/types';
 
 
 // Invertible url parser library
@@ -13,6 +16,24 @@ export enum ParseOptions {
   AllSegmentsConsumed = 0x1 << 1,
 }
 const { OnlyFirstMatch, AllSegmentsConsumed } = ParseOptions;
+
+
+/**
+ * Serialised representation of methods of `Parser`. Instances of
+ * class `Parser` contain information about how they were
+ * constructed. Later this information is used in `doParse` and
+ * `doPrint`.
+ */
+export type Parser<O={}, I=O> =
+  | Params<O, I>  // { params: Record<string, Adapter<any>> }
+  | Segment<O, I> // { key: string, adapter: Adapter<any> }
+  | Embed<O, I>   // { key: string, parser: Parser<unknown> }
+  | OneOf<O, I>   // { tags: Record<string, Parser<unknown>>, prefixTrie?: PrefixTrie }
+  | Path<O, I>    // { segments: string[] }
+  | Extra<O, I>   // { payload: object }
+  | Custom<O, I>  // { parse(s: ParserState): Array<[O, ParserState]>, print(a: I): UrlChunks }
+  | Merge<O, I>   // { first: Parser<object>, second: Parser<object> }
+  ;
 
 
 /**
@@ -42,29 +63,24 @@ const { OnlyFirstMatch, AllSegmentsConsumed } = ParseOptions;
  * @param O Result of parsing (output)
  * @param I Input for printing, usually same as `O`
  */
-export class Parser<O, I=O> {
+export class ParserBase<O={}, I=O> {
   readonly _O: O;
   readonly _I: I;
-
-  constructor(
-    readonly rules: ParserMethod<O, I>[],
-  ) {}
-
+  
   /** Try to match given string against the rules */
   parse(url: string): O|null {
-    const results = doParse(this.rules, prepareState(url), OnlyFirstMatch);
+    const results = doParse(this.toParser(), prepareState(url), OnlyFirstMatch);
     return results.length ? results[0][0] : null;
   }
 
   /** Convert result of parsing back into url. Inverse of `parse` */
   print(route: I): string {
-    return assembleChunks(doPrint(this.rules, route));
+    return assembleChunks(doPrint(this.toParser(), route));
   }
 
   /**
-   * Similar to `parse`, but returns an array of routes that includes
-   * all intermediate results that would succeed if input didn't have
-   * some redundant path segments.
+   * Similar to `parse`, but returns all succeeded routes, not just
+   * the "best fit"
    * 
    * ```ts
    * const parser = r.oneOf(
@@ -77,7 +93,7 @@ export class Parser<O, I=O> {
    * ```
    */
   parseAll(url: string): O[] {
-    const results = doParse(this.rules, prepareState(url), 0x0).sort(compareFn);
+    const results = doParse(this.toParser(), prepareState(url), 0x0).sort(compareFn);
     const output: Array<O> = [];
     let idx = -1;
     for (const [route, state] of results) {
@@ -103,14 +119,13 @@ export class Parser<O, I=O> {
    * matter
    */
   path(path: string): Parser<O, I> {
-    const segments = path.split('/').filter(x => x !== '');
-    this.rules.push({ tag: 'Path', segments });
-    return this as any;
+    const segments = path.split('/').filter(x => !!x);
+    return new Merge(this.toParser(), new Path(segments));
   }
   
   /**
-   * Parse one path segment with adapter and assign the result to the
-   * field with the given key
+   * Check one path segment with adapter and store the result in the
+   * given field
    * 
    * ```ts
    * const parser = r.path('/shop').segment('category', r.nestring).segment('page', r.nat);
@@ -121,13 +136,12 @@ export class Parser<O, I=O> {
    * @param key Field name in the data structure
    * @param adapter Adapter for parsing content of the segment
    */
-  segment<K extends string, A extends Adapter<any, { hasTotal: true }>>(key: K, adapter: A): SegmentParser<O, I, K, A> {
-    this.rules.push({ tag: 'Segment', key, adapter });
-    return this as any;
+  segment<K extends string, A extends Adapter<any>>(key: K, adapter: A): SegmentParser<O, I, K, A> {
+    return new Merge(this.toParser(), new Segment(key, adapter));
   }
   
   /**
-   * Add query string parameters
+   * Check query string parameters
    * 
    * ```ts
    * const parser = r.path('/shop/items').params({ offset: r.nat.withDefault(0), limit: r.nat.withDefault(20), search: r.string.withDefault('') });
@@ -137,9 +151,8 @@ export class Parser<O, I=O> {
    * @param params Object where keys are parameter names and values
    * are adapters
    */
-  params<R extends Record<string, Adapter<any, { hasPartial: true }>>>(params: R): ParamsParser<O, I, R> {
-    this.rules.push({ tag: 'Params', params });
-    return this as any;
+  params<R extends Record<string, Adapter<any>>>(params: R): ParamsParser<O, I, R> {
+    return new Merge(this.toParser(), new Params(params));
   }
   
   /**
@@ -154,14 +167,13 @@ export class Parser<O, I=O> {
    * ```
    * @param that Another `Parser`
    */
-  concat<That extends Parser<any, any>>(that: That): Parser<O & That['_O'], I & That['_I']> {
-    that.rules.forEach(x => this.rules.push(x));
-    return this as any;
+  merge<That extends Parser<any, any>>(that: That): Parser<O & That['_O'], I & That['_I']> {
+    return new Merge(this.toParser(), that);
   }
   
   /**
-   * Join two parsers together. Result of the second will be stored in
-   * the field `key`
+   * Join two parsers together. Result of the second parser will be
+   * stored in the field `key`
    * 
    * ```ts
    * const blog = r.path('/blog').params({ page: r.nat.withDefault(1) });
@@ -172,8 +184,7 @@ export class Parser<O, I=O> {
    * @param that Another `Parser`
    */
   embed<K extends string, That extends Parser<any, any>>(key: K, that: That): Parser<O & { [k in K]: That['_O'] }, I & { [k in K]: That['_I'] }> {
-    this.rules.push({ tag: 'Embed', key, rules: that.rules.slice() });
-    return this as any;
+    return new Merge(this.toParser(), new Embed(key, that.toParser()));
   }
   
   /**
@@ -193,65 +204,130 @@ export class Parser<O, I=O> {
    * ```
    * @param payload Object that will be merged with output
    */
-  extra<E>(payload: E): Parser<O & E, I> {
-    this.rules.push({ tag: 'Extra', payload } as any);
-    return this as any;
+  extra<E extends {}>(payload: E): Parser<O & E, I> {
+    return new Merge(this.toParser(), new Extra(payload));
   }
 
   /** Add additional fields to `I` */
   toOutput(input: I): O {
-    throw new Error('Unimplemented');
+    return toOutput(this.toParser(), input);
   }
 
-  /** Create a copy of `Parser` */
-  clone(): Parser<O, I> {
-    return new Parser(this.rules.slice());
+  /** Type coersion */
+  toParser(): Parser<O, I> {
+    return this as any;
   }
+}
+
+
+export class Params<O, I=O> extends ParserBase<O, I> {
+  constructor(
+    readonly _params: Record<string, Adapter<any>>,
+  ){ super(); }
+}
+
+
+export class Segment<O, I=O> extends ParserBase<O, I> {
+  constructor(
+    readonly _key: string,
+    readonly _adapter: Adapter<any>,
+  ){ super(); }
+}
+
+
+export class Path<O, I=O> extends ParserBase<O, I> {
+  constructor(
+    readonly _segments: string[]
+  ){ super(); }
+}
+
+
+export class Embed<O, I=O> extends ParserBase<O, I> {
+  constructor(
+    readonly _key: string,
+    readonly _parser: Parser<any>,
+  ){ super(); }
+}
+
+
+export class Merge<O, I=O> extends ParserBase<O, I> {
+  constructor(
+    readonly _first: Parser<any>,
+    readonly _second: Parser<any>,
+  ){ super(); }
+}
+
+
+export class OneOf<O, I=O> extends ParserBase<O, I> {
+  constructor(
+    readonly _tags: Record<string, Parser<any>>,
+    readonly _prefixTrie?: PrefixTrie,
+  ){ super(); }
+}
+
+
+export class Extra<O, I=O> extends ParserBase<O, I> {
+  constructor(
+    readonly _payload: object,
+  ){ super(); }
+}
+
+
+export class Custom<O, I=O> extends ParserBase<O, I> {
+  constructor(
+    readonly _parse: (s: ParserState) => Array<[O, ParserState]>,
+    readonly _print: (a: I) => UrlChunks,
+  ){ super(); }
 }
 
 
 /** Provide parser with a unique key in order to use it in `oneOf` */
 export function tag<T extends string>(tag: T): Parser<{ tag: T }, { tag: T }> {
-  return new Parser([{ tag: 'Extra', payload: { tag } }]);
+  return new Extra({ tag });
 }
 
 
 /** @see `Parser.prototype.path` */
 export function path(segmentsStr: string): Parser<{}, {}> {
-  const segments = segmentsStr.split('/').filter(x => x !== '');
-  return new Parser([{ tag: 'Path', segments }]);
+  const segments = segmentsStr.split('/').filter(x => !!x);
+  return new Path(segments);
 }
 
 
 /** @see `Parser.prototype.segment` */
-export function segment<K extends string, A extends Adapter<any, { hasTotal: true }>>(key: K, adapter: A): SegmentParser<{}, {}, K, A> {
-  return new Parser([{ tag: 'Segment', key, adapter }]);
+export function segment<K extends string, A extends Adapter<any>>(key: K, adapter: A): SegmentParser<{}, {}, K, A> {
+  return new Segment(key, adapter);
 }
 
 
 /** @see `Parser.prototype.extra` */
-export function extra<E>(payload: E): Parser<E, {}> {
-  return new Parser([{ tag: 'Extra', payload }]);
+export function extra<E extends {}>(payload: E): Extra<E, {}> {
+  return new Extra(payload);
 }
 
 
 /** @see `Parser.prototype.params` */
-export function params<R extends Record<string, Adapter<any, { hasPartial: true }>>>(params: R): ParamsParser<{}, {}, R> {
-  return new Parser([{ tag: 'Params', params }]);
+export function params<R extends Record<string, Adapter<any>>>(params: R): ParamsParser<{}, {}, R> {
+  return new Params(params);
+}
+
+
+export function embed<K extends string, That extends Parser<any, any>>(key: K, that: That): Parser<{ [k in K]: That['_O'] }, { [k in K]: That['_I'] }> {
+  return new Embed(key, that.toParser());
 }
 
 
 /**
  * Implement custom parser
  */
-export function custom<O, I=O>(parse: (s: ParserState) => Array<[O, ParserState]>, print: (a: I) => UrlChunks): Parser<O, I> {
-  return new Parser([{ tag: 'Custom', parse, print }]);
+export function custom<O, I=O>(parse: (s: ParserState) => Array<[O, ParserState]>, print: (a: I) => UrlChunks): Custom<O, I> {
+  return new Custom(parse, print);
 }
 
 
 // Shorthand for result of `oneOf`
-export type OneOfParser<P extends T> = Parser<P['_O'], P['_I']>;
-export type T = Parser<{ tag: string }, { tag: string }>;
+export type OneOfParser<P extends WithTag> = Parser<P['_O'], P['_I']>;
+export type WithTag = Parser<{ tag: string }, { tag: string }>;
 
 
 /**
@@ -269,39 +345,25 @@ export type T = Parser<{ tag: string }, { tag: string }>;
  * console.log(parser.print({ tag: 'Third' })); // => "third"
  * ```
  */
-export function oneOf<P1 extends T>(a: P1): OneOfParser<P1>;
-export function oneOf<P1 extends T, P2 extends T>(a: P1, b: P2): OneOfParser<P1|P2>;
-export function oneOf<P1 extends T, P2 extends T, P3 extends T>(a: P1, b: P2, c: P3): OneOfParser<P1|P2|P3>;
-export function oneOf<P1 extends T, P2 extends T, P3 extends T, P4 extends T>(a: P1, b: P2, c: P3, d: P4): OneOfParser<P1|P2|P3|P4>;
-export function oneOf<P1 extends T, P2 extends T, P3 extends T, P4 extends T, P5 extends T>(a: P1, b: P2, c: P3, d: P4, e: P5): OneOfParser<P1|P2|P3|P4|P5>;
-export function oneOf<P1 extends T, P2 extends T, P3 extends T, P4 extends T, P5 extends T, P6 extends T>(a: P1, b: P2, c: P3, d: P4, e: P5, f: P6): OneOfParser<P1|P2|P3|P4|P5|P6>;
-export function oneOf<P1 extends T, P2 extends T, P3 extends T, P4 extends T, P5 extends T, P6 extends T, P7 extends T>(a: P1, b: P2, c: P3, d: P4, e: P5, f: P6, g: P7): OneOfParser<P1|P2|P3|P4|P5|P6|P7>;
-export function oneOf<P1 extends T, P2 extends T, P3 extends T, P4 extends T, P5 extends T, P6 extends T, P7 extends T, P8 extends T>(a: P1, b: P2, c: P3, d: P4, e: P5, f: P6, g: P7, h: P8): OneOfParser<P1|P2|P3|P4|P5|P6|P7|P8>;
-export function oneOf<P1 extends T, P2 extends T, P3 extends T, P4 extends T, P5 extends T, P6 extends T, P7 extends T, P8 extends T, P9 extends T>(a: P1, b: P2, c: P3, d: P4, e: P5, f: P6, g: P7, h: P8, i: P9): OneOfParser<P1|P2|P3|P4|P5|P6|P7|P8|P9>;
-export function oneOf<array extends T[]>(array: array): OneOfParser<array[number]>;
+export function oneOf<P extends WithTag[]>(...args: P): OneOfParser<P[number]>;
+export function oneOf<P extends WithTag[]>(array: P): OneOfParser<P[number]>;
 export function oneOf(): OneOfParser<any> {
-  const parsers: ArrayLike<T> = Array.isArray(arguments[0]) ? arguments[0] : arguments;
-  const tags: Record<string, ParserMethod[]> = {};
+  const parsers: ArrayLike<WithTag> = Array.isArray(arguments[0]) ? arguments[0] : arguments;
+  const tags: Record<string, Parser> = {};
   for (let i = 0; i < parsers.length; i++) {
     const tag = lookupTag(parsers[i]);
-    if (tag) tags[tag] = parsers[i].rules.slice().sort(compareFn);
+    if (tag) tags[tag] = prepareOneOf(parsers[i]);
     else throw new Error(`oneOf: argument #${i + 1} wasn't provided with a tag`);
   }
 
   const prefixTrie = buildTrie(tags);
-  return new Parser([{ tag: 'OneOf', tags, prefixTrie }]);
+  return new OneOf(tags, prefixTrie);
 
-  function lookupTag(parser: T): string|null {
-    for (const rule of parser.rules) {
-      if (rule.tag === 'Extra' && typeof(rule.payload['tag']) === 'string') return rule.payload['tag'];
+  function lookupTag(parser: WithTag): string|null {
+    for (const rule of Array.from(makeIterator(parser))) {
+      if (rule instanceof Extra && typeof(rule._payload['tag']) === 'string') return rule._payload['tag'];
     }
     return null;
-  }
-
-  function compareFn(a: ParserMethod, b: ParserMethod): number {
-    const aWeight = a.tag === 'Path' || a.tag === 'Segment' ? -1 : 0;
-    const bWeight = b.tag === 'Path' || b.tag === 'Segment' ? -1 : 0;
-    return aWeight - bWeight;
   }
 }
 
@@ -330,16 +392,82 @@ export function assembleChunks(chunks: UrlChunks): string {
 }
 
 
-// Do actual parsing
-export function doParse<O>(rules: ParserMethod<O, any>[], state: ParserState, options = AllSegmentsConsumed): Array<[O, ParserState]> {
-  if (rules.length === 0) return [];
-  const results: any[] = [[{}, state.clone()]];
+export function toOutput<O, I>(parser: Parser<O, I>, input: I): O {
+  if (parser instanceof Params) {
+    // @ts-ignore
+    const output = { ...input } as O;
+    for (const k in parser.params) {
+      if (!(k in output)) {
+        const maybeDefault = getDefaultValue(parser.params[k]);
+        if (maybeDefault.isSome()) output[k] = maybeDefault.value;
+      }
+    }
+    return output;
+  }
   
-  for (const method of rules) {
-    if (method.tag === 'Params' || method.tag === 'Segment' || method.tag === 'Path' || method.tag === 'Extra') {
+  if (parser instanceof Segment) {
+    // @ts-ignore
+    return parser.key in input ? input as O : { ...input, [parser.key]: getDefaultValue(parser.adapter) } as O;
+  }
+  
+  if (parser instanceof Path) {
+    return input as any as O; // O ~ {}
+  }
+
+  if (parser instanceof Embed) {
+    // @ts-ignore
+    return { ...input, [parser.key]: toOutput(parser.parser, input[parser.key]) } as O;
+  }
+
+  if (parser instanceof OneOf) {
+    return toOutput(parser._tags[input['tag']], input) as O;
+  }
+
+  if (parser instanceof Extra) {
+    // @ts-ignore
+    return { ...input, ...parser.payload } as O;
+  }
+
+  if (parser instanceof Custom) {
+    console.error(`'toOutput' cannot be used with 'Custom' parsers`);
+    return input as any as O;
+  }
+
+  if (parser instanceof Merge) {
+    return { ...toOutput(parser._first, input), ...toOutput(parser._second, input) } as O;
+  }
+
+  return absurd(parser);
+}
+
+
+// Parsers that can produce only one output
+export type SingleParser<O={}, I=O> =
+  | Params<O, I>  // { params: Record<string, Adapter<any>> }
+  | Segment<O, I> // { key: string, adapter: Adapter<any> }
+  | Path<O, I>    // { segments: string[] }
+  | Extra<O, I>   // { payload: object }
+
+
+// Parsers that can produce many outputs
+export type MultipleParser<O={}, I=O> =
+  | Embed<O, I>   // { key: string, parser: Parser<unknown> }
+  | OneOf<O, I>   // { tags: Record<string, Parser<unknown>>, prefixTrie?: PrefixTrie }
+  | Custom<O, I>  // { parse(s: ParserState): Array<[O, ParserState]>, print(a: I): UrlChunks }
+  | Merge<O, I>   // { first: Parser<object>, second: Parser<object> }
+  ;
+
+
+
+// Do actual parsing
+export function doParse<O>(parser: Parser<O, any>, state: ParserState, options = AllSegmentsConsumed): Array<[O, ParserState]> {
+  const results: any[] = [[{}, state.clone()]];
+
+  for (const p of Array.from(makeIterator(parser))) {
+    if (p instanceof Params || p instanceof Segment || p instanceof Path || p instanceof Extra) {
       let i = 0;
       while (i < results.length) {
-        if (!parseSingle(method, results[i][0], results[i][1])) {
+        if (!parseSingle(p, results[i][0], results[i][1])) {
           results.splice(i, 1);
         } else i++;
       }
@@ -347,165 +475,180 @@ export function doParse<O>(rules: ParserMethod<O, any>[], state: ParserState, op
     } else {
       let i = 0;
       while (i < results.length) {
-        const replacements = parseMultiple(method, results[i][0], results[i][1]);
+        const replacements = parseMultiple(p, results[i][0], results[i][1]);
         results.splice(i, 1, ...replacements);
         i += replacements.length;
       } 
-      if (results.length === 0) return results;      
+      if (results.length === 0) return results;
     }
   }
   
   return results;
 
-  // Handle rules that produce only one result
-  function parseSingle<O>(rule: ParserMethod, output: O, state: ParserState): boolean {
+  // Handle parsers that produce only one result
+  function parseSingle<O>(parser: SingleParser<O, any>, output: O, state: ParserState): boolean {
     const { segments, params, idx } = state;
-    switch (rule.tag) {
-      case 'Params': {
-        for (const key in rule.params) {
-          if (!rule.params.hasOwnProperty(key)) continue;
-          const item = rule.params[key];
-          const namedAdapter = item.getImpl('hasName');
-          const defaultAdapter = item.getImpl('hasDefault');
-          const paramKey = namedAdapter ? namedAdapter._name : key;
-          const maybeValue = item.getImpl('hasPartial')._applyPartial(params.hasOwnProperty(paramKey) ? some(params[paramKey]) : none).or(
-            defaultAdapter ? some(defaultAdapter._default) : none
-          );
-          if (maybeValue.tag === 'None') return false;
-          output[key] = maybeValue.value;
-        }
-        return true;
+    if (parser instanceof Params) {
+      for (const key in parser.params) {
+        if (!parser.params.hasOwnProperty(key)) continue;
+        const item = parser.params[key] as Adapter<any>;
+        const name = getName(item);
+        const defaultValue = getDefaultValue(item);
+        const paramKey = name instanceof Some ? name.value : key;
+        const maybeValue = item.applyOption(params.hasOwnProperty(paramKey) ? some(params[paramKey]) : none).or(
+          defaultValue instanceof Some ? defaultValue : none
+        );
+        if (maybeValue instanceof None) return false;
+        output[key] = maybeValue.value;
       }
-      case 'Segment': {
-        if (idx === segments.length) return false;
-        const segment = segments[idx];
-        const result = rule.adapter.getImpl('hasTotal')._applyTotal(segment);
-        if (result.tag === 'None') return false;
-        output[rule.key] = result.value;
-        state.idx++;
-        return true;
-      }
-      case 'Path': {
-        let mathes = true;
-        for (let i = 0; i < rule.segments.length; i++) if (segments[idx + i] !== rule.segments[i]) { mathes = false; break; }
-        if (!mathes) return false;
-        state.idx += rule.segments.length;
-        return true;
-      }
-      case 'Extra': {
-        Object.assign(output, rule.payload);
-        return true;
-      }
+      return true;
     }
-    // unreachable code
-    return false; 
+    
+    if (parser instanceof Segment) {
+      if (idx === segments.length) return false;
+      const segment = segments[idx];
+      const result = parser._adapter.apply(segment);
+      if (result instanceof None) return false;
+      output[parser._key] = result.value;
+      state.idx++;
+      return true;
+    }
+    
+    if (parser instanceof Path) {
+      let mathes = true;
+      for (let i = 0; i < parser._segments.length; i++) if (segments[idx + i] !== parser._segments[i]) { mathes = false; break; }
+      if (!mathes) return false;
+      state.idx += parser._segments.length;
+      return true;
+    }
+    
+    if (parser instanceof Extra) {
+      Object.assign(output, parser._payload);
+      return true;
+    }
+
+    return absurd(parser);
   }
 
   // Handle rules that can produce multiple results
-  function parseMultiple<O>(rule: ParserMethod, prevOutput: O, prevState: ParserState): Array<[O, ParserState]> {
-    switch (rule.tag) {
-      case 'OneOf': {
-        const output: any[] = [];
-        const trie: PrefixTrie = rule.prefixTrie || { '': Object.keys(rule.tags).map(k => rule.tags[k]) };
-        let iter: PrefixTrie = trie;
-        let idx = prevState.idx;
-        const parents: PrefixTrie[] = [];
-        const segments = prevState.segments;
-        do {
-          parents.push(iter);
-          const nextSegment = segments[idx++];
-          if (!iter.hasOwnProperty(nextSegment)) break;
-          iter = iter[nextSegment] as PrefixTrie;
-        } while (1);
-        for (let i = parents.length - 1; i >= 0; i--) {
-          for (const rules of parents[i]['']) {
-            for (const pair of doParse(rules, prevState, options)) {
-              const [route, state] = pair;
-              Object.assign(route, prevOutput);
-	      if (!(options & OnlyFirstMatch)) output.push(pair);
-              if ((options & OnlyFirstMatch) && state.idx === state.segments.length) return [pair] as any;
-            }
+  function parseMultiple<O>(parser: MultipleParser<O, any>, prevOutput: O, prevState: ParserState): Array<[O, ParserState]> {
+    if (parser instanceof OneOf) {
+      const output: any[] = [];
+      const trie: PrefixTrie = parser._prefixTrie || { '': Object.keys(parser._tags).map(k => parser._tags[k]) };
+      let iter: PrefixTrie = trie;
+      let idx = prevState.idx;
+      const parents: PrefixTrie[] = [];
+      const segments = prevState.segments;
+      do {
+        parents.push(iter);
+        const nextSegment = segments[idx++];
+        if (!iter.hasOwnProperty(nextSegment)) break;
+        iter = iter[nextSegment] as PrefixTrie;
+      } while (1);
+      for (let i = parents.length - 1; i >= 0; i--) {
+        for (const rules of parents[i]['']) {
+          for (const pair of doParse(rules, prevState, options)) {
+            const [route, state] = pair;
+            Object.assign(route, prevOutput);
+            if (!(options & OnlyFirstMatch)) output.push(pair);
+            if ((options & OnlyFirstMatch) && state.idx === state.segments.length) return [pair] as any;
           }
         }
-        return output;
       }
-      case 'Custom': {
-        const output = rule.parse(prevState);
-        for (const pair of output) {
-          const [route, state] = pair;
-          Object.assign(route, prevOutput);
-          if ((options & OnlyFirstMatch) && state.idx === state.segments.length) return [pair] as any;
-        }
-        return (options & OnlyFirstMatch) ? [] : output as any;
-      }
-      case 'Embed': {
-        const output = doParse(rule.rules, prevState, options);
-        for (const i in output) {
-          output[i][0] = Object.assign({ [rule.key]: output[i][0] }, prevOutput);
-        }
-        return output as any;
-      }
+      return output;
     }
-    // unreachable code
-    return [];     
+    
+    if (parser instanceof Custom) {
+      const output = parser._parse(prevState);
+      for (const pair of output) {
+        const [route, state] = pair;
+        Object.assign(route, prevOutput);
+        if ((options & OnlyFirstMatch) && state.idx === state.segments.length) return [pair] as any;
+      }
+      return (options & OnlyFirstMatch) ? [] : output as any;
+    }
+
+    if (parser instanceof Embed) {
+      const output = doParse(parser._parser, prevState, options);
+      for (const i in output) {
+        output[i][0] = Object.assign({ [parser._key]: output[i][0] }, prevOutput);
+      }
+      return output as any;
+    }
+
+    if (parser instanceof Merge) {
+      // Unreachable code because `makeIterator` never yields `Merge`
+      return [];
+    }
+
+    return absurd(parser);
   }
 }
 
 
 // Do printing
-export function doPrint<I>(rules: ParserMethod<any, I, any>[], route: I): UrlChunks {
+export function doPrint<I>(parser: Parser<any, I>, route: I): UrlChunks {
   const output: UrlChunks = [[], {}];
-  for (const rule of rules) printHelper(rule, route, output);
+  printHelper(parser, route, output);
   return output;
   
-  function printHelper(rule: ParserMethod, route: I, output: UrlChunks) {
+  function printHelper(parser: Parser, route: I, output: UrlChunks) {
     const [segments, params] = output;
-    switch (rule.tag) {
-      case 'Params': {
-        for (const key in rule.params) { 
-          if (!rule.params.hasOwnProperty(key)) continue;
-          const adapter = rule.params[key];
-          const defaultAdapter = adapter.getImpl('hasDefault');
-          if (defaultAdapter && (!(key in route) || isEqual(route[key], defaultAdapter._default))) continue;
-          const namedAdapter = adapter.getImpl('hasName');
-          const paramKey = namedAdapter ? namedAdapter._name : key;
-          const maybeValue = adapter.getImpl('hasPartial')._unapplyPartial(route[key]);
-          if (maybeValue.tag === 'Some') params[paramKey] = maybeValue.value;
-        }
-        return void 0;
+    if (parser instanceof Params) {
+      for (const key in parser.params) { 
+        if (!parser.params.hasOwnProperty(key)) continue;
+        const adapter = parser.params[key] as Adapter<any>;
+        const defaultValue = getDefaultValue(adapter);
+        if (defaultValue instanceof Some && (!(key in route) || isEqual(route[key], defaultValue.value))) continue;
+        const name = getName(adapter);
+        const paramKey = name instanceof Some ? name.value : key;
+        const maybeValue = adapter.unapplyOption(route[key]);
+        if (maybeValue.isSome()) params[paramKey] = maybeValue.value;
       }
-      case 'Segment': {
-        const value = rule.key in route ? route[rule.key] : rule.adapter.getImpl('hasDefault')!._default;
-        segments.push(rule.adapter.getImpl('hasTotal')._unapplyTotal(value));
-        return void 0;
-      }
-      case 'Path': {
-        rule.segments.forEach(x => segments.push(x));
-        return void 0;
-      }
-      case 'OneOf': {
-        for (const nestedRules of rule.tags[route['tag']]) {
-          printHelper(nestedRules, route, output);
-        }
-        return void 0;
-      }
-      case 'Extra': {
-        return void 0;
-      }
-      case 'Custom': {
-        for (const chunks of rule.print(route)) {
-          chunks[0].forEach(x => segments.push(x));
-          Object.assign(params, chunks[1]);
-        }
-        return void 0;
-      }
-      case 'Embed': {
-        for (const nestedRules of rule.rules) {
-          printHelper(nestedRules, route[rule.key], output);
-        }
-        return void 0;
-      }
+      return void 0;
     }
+    
+    if (parser instanceof Segment) {
+      const defaultValue = getDefaultValue(parser._adapter);
+      const value = parser._key in route ? route[parser._key] : defaultValue instanceof Some ? defaultValue.value : undefined;
+      segments.push(parser._adapter.unapply(value));
+      return void 0;
+    }
+    
+    if (parser instanceof Path) {
+      parser._segments.forEach(x => segments.push(x));
+      return void 0;
+    }
+    
+    if (parser instanceof OneOf) {
+      printHelper(parser._tags[route['tag']], route, output);
+      return void 0;
+    }
+    
+    if (parser instanceof Extra) {
+      return void 0;
+    }
+
+    if (parser instanceof Custom) {
+      for (const chunks of parser._print(route)) {
+        chunks[0].forEach(x => segments.push(x));
+        Object.assign(params, chunks[1]);
+      }
+      return void 0;
+    }
+
+    if (parser instanceof Embed) {
+      printHelper(parser._parser, route[parser._key], output);
+      return void 0;
+    }
+
+    if (parser instanceof Merge) {
+      printHelper(parser._first, route, output);
+      printHelper(parser._second, route, output);
+      return void 0;
+    }
+
+    return absurd(parser);
   }  
 }
 
@@ -533,28 +676,12 @@ export type UrlChunks = [string[], Record<string, string>];
 
 
 /**
- * Serialised representation of methods of `Parser`. Instances of
- * class `Parser` contain information about how they were
- * constructed. Later this information is used in `doParse` and
- * `doPrint`.
- */
-export type ParserMethod<O={}, I=O, Extra={}> =
-  | { tag: 'Params', params: Record<string, Adapter<any, { hasPartial: true }>> }
-  | { tag: 'Segment', key: string, adapter: Adapter<any, { hasTotal: true }> }
-  | { tag: 'Path', segments: string[] }
-  | { tag: 'Embed', key: string, rules: ParserMethod[] }
-  | { tag: 'OneOf', tags: Record<string, ParserMethod[]>, prefixTrie?: PrefixTrie }
-  | { tag: 'Extra', payload: Extra }
-  | { tag: 'Custom', parse(s: ParserState): Array<[O, ParserState]>, print(a: I): UrlChunks };
-
-
-/**
  * Search optimization structure for `oneOf`
  * @see https://en.wikipedia.org/wiki/Trie
  */
 export interface PrefixTrie {
-  '': ParserMethod[][];
-  [k: string]: ParserMethod[][]|PrefixTrie; // this should be just `PrefixTrie`, but ts complains
+  '': Parser[];
+  [k: string]: Parser[]|PrefixTrie; // this should be just `PrefixTrie`, but ts complains
 }
 
 
@@ -562,12 +689,12 @@ export interface PrefixTrie {
 
 
 // Result type for `Parser.prototype.segment`
-export type SegmentParser<O, I, K extends string, A extends Adapter<any, { hasTotal }>>
+export type SegmentParser<O, I, K extends string, A extends Adapter<any>>
   = Parser<O & { [K_ in K]: A['_A'] }, I & InParams<{ [K_ in K]: A }>>;
 
 
 // Result type for `Parser.prototype.params`
-export type ParamsParser<O, I, R extends Record<string, Adapter<any, { hasPartial: true }>>>
+export type ParamsParser<O, I, R extends Record<string, Adapter<any>>>
   = Parser<O & OutParams<R>, I & InParams<R>>;
 
 
@@ -588,14 +715,13 @@ export type PickDefault<R extends Record<string, Adapter<any, any>>> = {
 
     
 
-function buildTrie(tags: Record<string, ParserMethod[]>): PrefixTrie {
+function buildTrie<O, I>(tags: Record<string, Parser<O, I>>): PrefixTrie {
   const trie: PrefixTrie = { '': [] };
   for (const k in tags) {
     let iter: PrefixTrie = trie;
-    for (let j = 0; j < tags[k].length; j++) {
-      const rule = tags[k][j];
-      if (rule.tag !== 'Path') break;
-      for (const s of rule.segments) { iter[s] = iter[s] || { '': [] }; iter = iter[s] as PrefixTrie; }
+    for (const parser of Array.from(makeIterator(tags[k]))) {
+      if (!(parser instanceof Path)) break;
+      for (const s of parser._segments) { iter[s] = iter[s] || { '': [] }; iter = iter[s] as PrefixTrie; }
     }
     iter[''].push(tags[k]);
   }
@@ -614,4 +740,39 @@ const prettyUriEncode: (str: string) => string = function () {
 // https://stackoverflow.com/a/9310752
 function escapeRegExp(text) {
   return text.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
+}
+
+
+// All parsers except `Merge`
+export type PrimitiveParser<O={}, I=O> = OmitMerge<Parser<O, I>>;
+export type OmitMerge<T> = T extends Merge<any, any> ? never : T;
+
+
+// Traverse all primitive parsers
+export function traverseParsers<O, I>(parser: Parser<O, I>, iteratee: (parser: PrimitiveParser<unknown>) => void): void {
+  if (parser instanceof Merge) {
+    traverseParsers(parser._first, iteratee);
+    traverseParsers(parser._second, iteratee);
+  } else {
+    iteratee(parser);
+  }
+}
+
+  
+function getDefaultValue<A>(adapter: Adapter<A>): Option<A> {
+  if (adapter instanceof DefaultAdapter) return some(adapter._default);
+  if (adapter instanceof CustomAdapter) return none;
+  if (adapter instanceof NamedAdapter) return getDefaultValue(adapter._adapter);
+  if (adapter instanceof DimapAdapter) return getDefaultValue(adapter._adapter).map(adapter._map);
+  if (adapter instanceof HasAdapter) return getDefaultValue(adapter.toAdapter());
+  return absurd(adapter);
+}
+
+function getName<A>(adapter: Adapter<A>): Option<string> {
+  if (adapter instanceof DefaultAdapter) return getName(adapter._adapter);
+  if (adapter instanceof CustomAdapter) return none;
+  if (adapter instanceof NamedAdapter) return some(adapter._name);
+  if (adapter instanceof DimapAdapter) return getName(adapter._adapter);
+  if (adapter instanceof HasAdapter) return getName(adapter.toAdapter());
+  return absurd(adapter);
 }
