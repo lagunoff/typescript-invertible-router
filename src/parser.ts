@@ -699,19 +699,13 @@ export type ParamsParser<O, I, R extends Record<string, Adapter<any>>>
 
 
 export type InParams<R extends Record<string, Adapter<any, any>>> = {
-  [K in Exclude<keyof R, PickDefault<R>>]: R[K] extends Adapter<infer A, any> ? A : never;
-} & {
-  [K in PickDefault<R>]?: R[K] extends Adapter<infer A, any> ? A : never;
-};
+  [K in keyof R]: R[K] extends Adapter<infer A, { hasDefault }> ? { [K_ in K]?: A } : R[K] extends Adapter<infer A, any> ? { [K_ in K]: A } : never;
+}[keyof R];
 
 
 export type OutParams<R extends Record<string, Adapter<any, any>>> = {
   [K in keyof R]: R[K] extends Adapter<infer A, any> ? A : never;
 }
-
-export type PickDefault<R extends Record<string, Adapter<any, any>>> = {
-  [K in keyof R]: R[K] extends Adapter<infer A, { hasDefault: true }> ? K : never
-}[keyof R];
 
     
 
