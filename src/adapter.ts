@@ -15,7 +15,6 @@ export type Adapter<A, F={}> =
 
 // Type-level flags
 export type Flags = {
-  hasName: true;
   hasDefault: true;
   nonEmpty: true;
 };
@@ -141,7 +140,7 @@ export class AdapterBase<A, F={}> {
    * ```
    */
   withName(name: string) {
-    return new NamedAdapter<A, F & { hasName: true }>(this as any, name);
+    return new NamedAdapter<A, F>(this as any, name);
   }
 
   /**
@@ -246,7 +245,7 @@ export { intAdapter as int };
 
 
 /** Dates as iso-8601 */
-const iso8601Adapter = new CustomAdapter<Date>(
+const iso8601Adapter = new CustomAdapter<Date, { nonEmpty: true }>(
   str => { const d = new Date(str); return isNaN(d.valueOf()) ? none : some(d); },
   d => d.toISOString(),
 );
@@ -254,7 +253,7 @@ export { iso8601Adapter as date };
 
 
 /** Booleans */
-const booleanAdapter = new CustomAdapter<boolean>(
+const booleanAdapter = new CustomAdapter<boolean, { nonEmpty: true }>(
   x => x === '' || x === 'false' || x === '0' || x === 'off' ? some(false) : some(true),
   x => x ? 'true' : 'false',
 ).withDefault(false);
@@ -271,7 +270,7 @@ export { booleanAdapter as boolean };
  * console.log(parser.print({ statuses: ['pending', 'scheduled'] })); // => "todos?statuses=pending,scheduled"
  * ```
  */
-export function array<A>(adapter: Adapter<A>): CustomAdapter<A[]> {
+export function array<A>(adapter: Adapter<A, any>): CustomAdapter<A[], {}> {
   return new CustomAdapter<A[]>(
     str => traverse(parseCsv(str), x => adapter.apply(x)), 
     xs => printCsv(xs.map(x => adapter.unapply(x))),

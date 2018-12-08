@@ -69,13 +69,15 @@ export class ParserBase<O={}, I=O> {
   
   /** Try to match given string against the rules */
   parse(url: string): O|null {
-    const results = doParse(this.toParser(), prepareState(url), OnlyFirstMatch);
+    const self = this as any as Parser<O, I>;
+    const results = doParse(self, prepareState(url), OnlyFirstMatch);
     return results.length ? results[0][0] : null;
   }
 
   /** Convert result of parsing back into url. Inverse of `parse` */
   print(route: I): string {
-    return assembleChunks(doPrint(this.toParser(), route));
+    const self = this as any as Parser<O, I>;
+    return assembleChunks(doPrint(self, route));
   }
 
   /**
@@ -93,7 +95,8 @@ export class ParserBase<O={}, I=O> {
    * ```
    */
   parseAll(url: string): O[] {
-    const results = doParse(this.toParser(), prepareState(url), 0x0).sort(compareFn);
+    const self = this as any as Parser<O, I>;
+    const results = doParse(self, prepareState(url), 0x0).sort(compareFn);
     const output: Array<O> = [];
     let idx = -1;
     for (const [route, state] of results) {
@@ -118,9 +121,10 @@ export class ParserBase<O={}, I=O> {
    * @param path Path segments separated by slash, extra slashes don't
    * matter
    */
-  path(path: string): Parser<O, I> {
+  path(path: string): Merge<O, I> {
+    const self = this as any as Parser<O, I>;
     const segments = path.split('/').filter(x => !!x);
-    return new Merge(this.toParser(), new Path(segments));
+    return new Merge(self, new Path(segments));
   }
   
   /**
@@ -136,8 +140,9 @@ export class ParserBase<O={}, I=O> {
    * @param key Field name in the data structure
    * @param adapter Adapter for parsing content of the segment
    */
-  segment<K extends string, A extends Adapter<any>>(key: K, adapter: A): SegmentParser<O, I, K, A> {
-    return new Merge(this.toParser(), new Segment(key, adapter));
+  segment<K extends string, A extends Adapter<any, { nonEmpty: true }>>(key: K, adapter: A): SegmentParser<O, I, K, A> {
+    const self = this as any as Parser<O, I>;
+    return new Merge(self, new Segment(key, adapter));
   }
   
   /**
@@ -152,7 +157,8 @@ export class ParserBase<O={}, I=O> {
    * are adapters
    */
   params<R extends Record<string, Adapter<any>>>(params: R): ParamsParser<O, I, R> {
-    return new Merge(this.toParser(), new Params(params));
+    const self = this as any as Parser<O, I>;
+    return new Merge(self, new Params(params));
   }
   
   /**
@@ -167,8 +173,9 @@ export class ParserBase<O={}, I=O> {
    * ```
    * @param that Another `Parser`
    */
-  merge<That extends Parser<any, any>>(that: That): Parser<O & That['_O'], I & That['_I']> {
-    return new Merge(this.toParser(), that);
+  merge<That extends Parser<any, any>>(that: That): Merge<O & That['_O'], I & That['_I']> {
+    const self = this as any as Parser<O, I>;
+    return new Merge(self, that);
   }
   
   /**
@@ -183,8 +190,9 @@ export class ParserBase<O={}, I=O> {
    * ```
    * @param that Another `Parser`
    */
-  embed<K extends string, That extends Parser<any, any>>(key: K, that: That): Parser<O & { [k in K]: That['_O'] }, I & { [k in K]: That['_I'] }> {
-    return new Merge(this.toParser(), new Embed(key, that.toParser()));
+  embed<K extends string, That extends Parser<any, any>>(key: K, that: That): Merge<O & { [k in K]: That['_O'] }, I & { [k in K]: That['_I'] }> {
+    const self = this as any as Parser<O, I>;
+    return new Merge(self, new Embed(key, that));
   }
   
   /**
@@ -204,18 +212,15 @@ export class ParserBase<O={}, I=O> {
    * ```
    * @param payload Object that will be merged with output
    */
-  extra<E extends {}>(payload: E): Parser<O & E, I> {
-    return new Merge(this.toParser(), new Extra(payload));
+  extra<E extends {}>(payload: E): Merge<O & E, I> {
+    const self = this as any as Parser<O, I>;
+    return new Merge(self, new Extra(payload));
   }
 
   /** Add additional fields to `I` */
   toOutput(input: I): O {
-    return toOutput(this.toParser(), input);
-  }
-
-  /** Type coersion */
-  toParser(): Parser<O, I> {
-    return this as any;
+    const self = this as any as Parser<O, I>;
+    return toOutput(self, input);
   }
 }
 
@@ -313,7 +318,7 @@ export function params<R extends Record<string, Adapter<any>>>(params: R): Param
 
 
 export function embed<K extends string, That extends Parser<any, any>>(key: K, that: That): Parser<{ [k in K]: That['_O'] }, { [k in K]: That['_I'] }> {
-  return new Embed(key, that.toParser());
+  return new Embed(key, that);
 }
 
 
@@ -681,7 +686,7 @@ export type UrlChunks = [string[], Record<string, string>];
  */
 export interface PrefixTrie {
   '': Parser[];
-  [k: string]: Parser[]|PrefixTrie; // this should be just `PrefixTrie`, but ts complains
+  [k: string]: Parser[]|PrefixTrie; // should be `PrefixTrie`, but ts complains
 }
 
 
@@ -703,11 +708,10 @@ export type InParams<R extends Record<string, Adapter<any, any>>> = {
 }[keyof R];
 
 
-export type OutParams<R extends Record<string, Adapter<any, any>>> = {
+export type OutParams<R> = {
   [K in keyof R]: R[K] extends Adapter<infer A, any> ? A : never;
 }
 
-    
 
 function buildTrie<O, I>(tags: Record<string, Parser<O, I>>): PrefixTrie {
   const trie: PrefixTrie = { '': [] };
@@ -752,7 +756,7 @@ export function traverseParsers<O, I>(parser: Parser<O, I>, iteratee: (parser: P
   }
 }
 
-  
+
 function getDefaultValue<A>(adapter: Adapter<A>): Option<A> {
   if (adapter instanceof DefaultAdapter) return some(adapter._default);
   if (adapter instanceof CustomAdapter) return none;
