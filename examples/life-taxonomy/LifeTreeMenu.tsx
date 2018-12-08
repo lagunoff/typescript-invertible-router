@@ -35,7 +35,7 @@ class LifeTreeMenu extends React.Component<Props, State> {
     /** Expand the first level */
     this.initialVisibility = function () {
       const output: VisibilityTree = {};
-      const prefixTree = parser.rules[0]['prefixTrie'] as PrefixTrie;
+      const prefixTree = parser._prefixTrie!;
       for (const k in prefixTree) {
         if (!prefixTree.hasOwnProperty(k) || k === '') continue;
         output[k] = true;
@@ -45,7 +45,7 @@ class LifeTreeMenu extends React.Component<Props, State> {
 
     /** Expand all the nodes */
     this.expandAll = function () {
-      const prefixTree = parser.rules[0]['prefixTrie'] as PrefixTrie;
+      const prefixTree = parser._prefixTrie!;
       return go(prefixTree) as VisibilityTree;
 
       function go(prefixTree: PrefixTrie): VisibilityTree|true {
@@ -97,7 +97,7 @@ class LifeTreeMenu extends React.Component<Props, State> {
   renderTree() {
     const self = this;
     const { state } = this;
-    const prefixTree = parser.rules[0]['prefixTrie'] as PrefixTrie;
+    const prefixTree = parser._prefixTrie!;
     const svgObjects: React.ReactElement<any>[] = [];
     const svgIcons: React.ReactElement<any>[] = [];
     let yCoords: number = 0;

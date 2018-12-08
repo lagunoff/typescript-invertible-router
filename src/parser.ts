@@ -326,7 +326,7 @@ export function custom<O, I=O>(parse: (s: ParserState) => Array<[O, ParserState]
 
 
 // Shorthand for result of `oneOf`
-export type OneOfParser<P extends WithTag> = Parser<P['_O'], P['_I']>;
+export type OneOfParser<P extends WithTag> = OneOf<P['_O'], P['_I']>;
 export type WithTag = Parser<{ tag: string }, { tag: string }>;
 
 
@@ -595,7 +595,6 @@ export function doPrint<I>(parser: Parser<any, I>, route: I): UrlChunks {
   function printHelper(parser: Parser, route: I, output: UrlChunks) {
     const [segments, params] = output;
     if (parser instanceof Params) {
-      debugger;
       for (const key in parser._params) { 
         if (!parser._params.hasOwnProperty(key)) continue;
         const adapter = parser._params[key] as Adapter<any>;

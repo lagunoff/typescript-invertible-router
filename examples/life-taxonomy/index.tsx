@@ -1,6 +1,6 @@
 import * as React from 'react';
 import * as ReactDOM from 'react-dom';
-import * as r from '../../';
+import * as r from '../../src';
 import { PrefixTrie } from '../../src/parser';
 import LifeTreeMenu from './LifeTreeMenu';
 import theme, { linkStyle } from './theme';
