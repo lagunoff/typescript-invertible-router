@@ -1,4 +1,4 @@
-import { Parser, Merge, Path } from '../parser';
+import { Parser, Merge, Path, Segment } from '../parser';
 
 
 type Result<O, I> = {
@@ -12,17 +12,22 @@ export default function prepareOneOf<O, I>(parser: Parser<O, I>): Parser<O, I> {
   return joinResult(go(parser));
   
   function go(parser: Parser<O, I>): Result<O, I> {
-    switch(parser.tag) {
-      case 'Path': return { paths: [parser], rest: null, done: false };
-      case 'Segment': return { paths: [], rest: parser, done: true };
-      case 'Merge': {
-        const first = go(parser.first); if (first.done) return { paths: [], rest: new Merge(joinResult(first), parser.second), done: true };
-        const second = go(parser.second);
-        const rest: Parser<O, I>|null = first.rest && second.rest ? new Merge(first.rest, second.rest) : first.rest || second.rest || null;
-        return { paths: [...first.paths, ...second.paths], rest, done: first.done || second.done };
-      }
-      default: return { paths: [], rest: parser, done: false };
+    if (parser instanceof Path) {
+      return { paths: [parser], rest: null, done: false };
     }
+    
+    if (parser instanceof Segment) {
+      return { paths: [], rest: parser, done: true };
+    }
+
+    if (parser instanceof Merge) {
+      const first = go(parser._first); if (first.done) return { paths: [], rest: new Merge(joinResult(first), parser._second), done: true };
+      const second = go(parser._second);
+      const rest: Parser<O, I>|null = first.rest && second.rest ? new Merge(first.rest, second.rest) : first.rest || second.rest || null;
+      return { paths: [...first.paths, ...second.paths], rest, done: first.done || second.done };
+    }
+    
+    return { paths: [], rest: parser, done: false };
   }
 
   function fromArray<O, I>(parsers: Parser<O, I>[]): Parser<O, I> {

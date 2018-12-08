@@ -352,7 +352,7 @@ export function oneOf(): OneOfParser<any> {
   const tags: Record<string, Parser> = {};
   for (let i = 0; i < parsers.length; i++) {
     const tag = lookupTag(parsers[i]);
-    if (tag) tags[tag] = prepareOneOf(parsers[i]);
+    if (tag !== null) tags[tag] = prepareOneOf(parsers[i]);
     else throw new Error(`oneOf: argument #${i + 1} wasn't provided with a tag`);
   }
 
@@ -489,9 +489,9 @@ export function doParse<O>(parser: Parser<O, any>, state: ParserState, options =
   function parseSingle<O>(parser: SingleParser<O, any>, output: O, state: ParserState): boolean {
     const { segments, params, idx } = state;
     if (parser instanceof Params) {
-      for (const key in parser.params) {
-        if (!parser.params.hasOwnProperty(key)) continue;
-        const item = parser.params[key] as Adapter<any>;
+      for (const key in parser._params) {
+        if (!parser._params.hasOwnProperty(key)) continue;
+        const item = parser._params[key] as Adapter<any>;
         const name = getName(item);
         const defaultValue = getDefaultValue(item);
         const paramKey = name instanceof Some ? name.value : key;
@@ -595,9 +595,10 @@ export function doPrint<I>(parser: Parser<any, I>, route: I): UrlChunks {
   function printHelper(parser: Parser, route: I, output: UrlChunks) {
     const [segments, params] = output;
     if (parser instanceof Params) {
-      for (const key in parser.params) { 
-        if (!parser.params.hasOwnProperty(key)) continue;
-        const adapter = parser.params[key] as Adapter<any>;
+      debugger;
+      for (const key in parser._params) { 
+        if (!parser._params.hasOwnProperty(key)) continue;
+        const adapter = parser._params[key] as Adapter<any>;
         const defaultValue = getDefaultValue(adapter);
         if (defaultValue instanceof Some && (!(key in route) || isEqual(route[key], defaultValue.value))) continue;
         const name = getName(adapter);
@@ -653,7 +654,7 @@ export function doPrint<I>(parser: Parser<any, I>, route: I): UrlChunks {
 }
 
 
-/** Internal parser state */
+// Internal parser state
 export class ParserState {
   constructor(
     public segments: string[],
