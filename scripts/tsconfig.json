@@ -11,5 +11,5 @@
     "strictNullChecks": true,
     "target": "es5"
   },
-  "include": ["./**.ts"]
+  "files": ["./gendocs.ts"]
 }

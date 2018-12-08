@@ -34,9 +34,13 @@
     "react"
   ],
   "devDependencies": {
+    "@types/node": "^10.12.12",
+    "lodash": "^4.17.11",
+    "ts-node": "^7.0.1",
     "tslint": "^5.9.1",
     "tslint-config-airbnb": "^5.4.2",
-    "typescript": "2.8.3"
+    "tsutils": "^3.5.2",
+    "typescript": "^3.2.2"
   },
   "dependencies": {}
 }

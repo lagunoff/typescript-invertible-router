@@ -37,7 +37,7 @@ export function generateDocs(fileNames: string[], options: ts.CompilerOptions) {
   
   function visit(output: Record<string, DocEntry>, node: ts.Node) {
     if (ts.isFunctionDeclaration(node) && isNodeExported(node)) {
-      const symbol = checker.getSymbolAtLocation(node.name);
+      const symbol = checker.getSymbolAtLocation(node);
       if (symbol && !output.hasOwnProperty(symbol.getName())) {
         output[symbol.getName()] = serializeFunction(node, symbol);
       }
@@ -49,8 +49,8 @@ export function generateDocs(fileNames: string[], options: ts.CompilerOptions) {
       ts.forEachChild(node, x => visit(output, x));
     } else if (ts.isMethodDeclaration(node) && ts.isClassDeclaration(node.parent)) {
       const symbol = checker.getSymbolAtLocation(node.name);
-      const parent = checker.getSymbolAtLocation(node.parent.name);
-      const name = `${parent.getName()}.prototype.${symbol.getName()}`;
+      const parent = checker.getSymbolAtLocation(node.parent);
+      const name = parent ? `${parent.getName()}.prototype.${symbol!.getName()}` : symbol!.getName();
       if (symbol && parent && !output.hasOwnProperty(name)) {
         output[name] = serializeMethod(node, symbol, parent);
       }
@@ -62,7 +62,7 @@ export function generateDocs(fileNames: string[], options: ts.CompilerOptions) {
     return {
       tag: 'Class',
       name: symbol.name,
-      documentation: ts.displayPartsToString(symbol.getDocumentationComment()),
+      documentation: ts.displayPartsToString(symbol.getDocumentationComment(checker)),
     };
   }
 
@@ -73,7 +73,7 @@ export function generateDocs(fileNames: string[], options: ts.CompilerOptions) {
     return {
       tag: 'Function',
       name: symbol.getName(),
-      documentation: ts.displayPartsToString(symbol.getDocumentationComment()),
+      documentation: ts.displayPartsToString(symbol.getDocumentationComment(checker)),
       signatures: functionType.getCallSignatures().map(x => checker.signatureToString(x, node, ts.TypeFormatFlags.NoTruncation)),
     };
   }
@@ -86,7 +86,7 @@ export function generateDocs(fileNames: string[], options: ts.CompilerOptions) {
       tag: 'Method',
       parent: parent.getName(),
       name: symbol.getName(),
-      documentation: ts.displayPartsToString(symbol.getDocumentationComment()),
+      documentation: ts.displayPartsToString(symbol.getDocumentationComment(checker)),
       signatures: functionType.getCallSignatures().map(x => checker.signatureToString(x, undefined, ts.TypeFormatFlags.NoTruncation)),
     };
   }
@@ -95,7 +95,7 @@ export function generateDocs(fileNames: string[], options: ts.CompilerOptions) {
 
 
 /** True if this is visible outside this file, false otherwise */
-function isNodeExported(node: ts.Node): boolean {
+function isNodeExported(node: ts.Declaration): boolean {
   return (ts.getCombinedModifierFlags(node) & ts.ModifierFlags.Export) !== 0 || (!!node.parent && node.parent.kind === ts.SyntaxKind.SourceFile);
 }
 
