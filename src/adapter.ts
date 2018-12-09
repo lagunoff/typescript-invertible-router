@@ -3,13 +3,25 @@ import { Option, some, none, traverse, None } from './option';
 import isEqual from './internal/isequal';
 
 
-// Aliases
+/**
+ * Partial isomorphism between `string` and `A`. Parameter `F`
+ * contains type-level flags for distinguishing different kinds of
+ * adapters. An adapter can be thought of as just a pair of functions
+ * like in this simplified definition
+ * 
+ * ```ts
+ * type Adapter<A> = {
+ *   apply(s: string): Option<A>;
+ *   unapply(a: A): string;
+ * };
+ * ```
+ */
 export type Adapter<A, F={}> =
-  | CustomAdapter<A, F>
-  | NamedAdapter<A, F>
-  | DefaultAdapter<A, F>
-  | DimapAdapter<A, F>
-  | HasAdapter<A, F>
+  | CustomAdapter<A, F>  // { _apply: (s: string) => Option<A>, _unapply: (a: A) => string }
+  | DefaultAdapter<A, F> // { _adapter: Adapter<A, any>, _default: A }
+  | NamedAdapter<A, F>   // { _adapter: Adapter<A, any>, _name: string }
+  | DimapAdapter<A, F>   // { _map: (x: B) => A, _comap: (x: A) => B, _adapter: Adapter<B, F> }
+  | HasAdapter<A, F>     // { toAdapter(): Adapter<A, F> }
   ;
 
 
@@ -25,6 +37,9 @@ export class AdapterBase<A, F={}> {
   readonly _A: A;
   readonly _F: F;
 
+  /**
+   * Try to match a string to a value of type `A`
+   */
   apply(s: string): Option<A> {
     const self = this as any as Adapter<A, F>;
     
@@ -51,6 +66,9 @@ export class AdapterBase<A, F={}> {
     return absurd(self);
   }
 
+  /**
+   * Inverse of `apply`. Serialize an `A` back into a string
+   */
   unapply(a: A): string {
     const self = this as any as Adapter<A, F>;
     
@@ -77,6 +95,10 @@ export class AdapterBase<A, F={}> {
     return absurd(self);    
   }
 
+  /**
+   * Similar to `apply` but also handles lack of the input (when the
+   * key doesn't exist in query parameters)
+   */
   applyOption(s: Option<string>): Option<A> {
     const self = this as any as Adapter<A, F>;
     
@@ -104,6 +126,9 @@ export class AdapterBase<A, F={}> {
   }
 
   
+  /**
+   * Inverse of `applyOption`
+   */
   unapplyOption(a: A): Option<string> {
     const self = this as any as Adapter<A, F>;
     
@@ -132,7 +157,7 @@ export class AdapterBase<A, F={}> {
   
 
   /**
-   * Set different parameter name compared to the name of the field
+   * Provide different parameter name
    * 
    * ```ts
    * const parser = r.path('/home').params({ snakeCase: r.nat.withName('snake_case') });
@@ -144,7 +169,8 @@ export class AdapterBase<A, F={}> {
   }
 
   /**
-   * Provide default value, new adapter will always succeed
+   * Provide default value. This value will be used when the key
+   * doesn't exist in the query parameters
    *
    * ```ts
    * const parser = r.path('shop/items').params({ search: r.string.withDefault(''), page: r.nat.withDefault(1) });
@@ -311,7 +337,7 @@ export function of<A extends Expr>(a: A): CustomAdapter<A, {}> {
 }
 
 
-/** Constructor for `TotalAdapter` */
+/** Constructor for `CustomAdapter` */
 export function custom<A>(apply: (s: string) => Option<A>, unapply: (a: A) => string) {
   return new CustomAdapter<A>(apply, unapply);
 }

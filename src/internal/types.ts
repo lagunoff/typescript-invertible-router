@@ -1,4 +1,4 @@
-/** For better type inference */
+/** Better type inference */
 export type Expr = boolean|null|undefined|number|string|{}|any[]|[any,any]|[any,any,any]|Function
 
 

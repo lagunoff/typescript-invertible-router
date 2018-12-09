@@ -9,6 +9,7 @@ declare const Promise: any;
 
 type DocEntry =
   | { tag: 'Class', name: string, documentation: string }
+  | { tag: 'Type', name: string, documentation: string, type: string }
   | { tag: 'Function', name: string, documentation: string, signatures: string[] }
   | { tag: 'Method', parent: string, name: string, documentation: string, signatures: string[] }
 
@@ -37,22 +38,33 @@ export function generateDocs(fileNames: string[], options: ts.CompilerOptions) {
   
   function visit(output: Record<string, DocEntry>, node: ts.Node) {
     if (ts.isFunctionDeclaration(node) && isNodeExported(node)) {
-      const symbol = checker.getSymbolAtLocation(node);
+      const symbol = checker.getSymbolAtLocation(node) || node['symbol'];
       if (symbol && !output.hasOwnProperty(symbol.getName())) {
         output[symbol.getName()] = serializeFunction(node, symbol);
       }
     } else if (ts.isClassDeclaration(node) && node.name && isNodeExported(node)) {
-      const symbol = checker.getSymbolAtLocation(node.name);
+      const symbol = checker.getSymbolAtLocation(node.name) || node['symbol'];
       if (symbol && !output.hasOwnProperty(symbol.getName())) {
         output[symbol.getName()] = serializeClass(symbol);
       }
       ts.forEachChild(node, x => visit(output, x));
-    } else if (ts.isMethodDeclaration(node) && ts.isClassDeclaration(node.parent)) {
-      const symbol = checker.getSymbolAtLocation(node.name);
-      const parent = checker.getSymbolAtLocation(node.parent);
+    } else if (ts.isMethodDeclaration(node)) {
+      const symbol = checker.getSymbolAtLocation(node.name) || node['symbol'];
+      const parent = checker.getSymbolAtLocation(node.parent) || node.parent['symbol'];
       const name = parent ? `${parent.getName()}.prototype.${symbol!.getName()}` : symbol!.getName();
       if (symbol && parent && !output.hasOwnProperty(name)) {
         output[name] = serializeMethod(node, symbol, parent);
+      }
+    } else if (ts.isVariableDeclaration(node)) {
+      const symbol = checker.getSymbolAtLocation(node) || node['symbol'];
+      if (symbol && !output.hasOwnProperty(symbol.getName())) {
+        output[symbol.getName()] = serializeFunction(node, symbol);
+      }
+    } else if (ts.isTypeAliasDeclaration(node) && isNodeExported(node)) {
+      node.type
+      const symbol = checker.getSymbolAtLocation(node) || node['symbol'];
+      if (symbol && !output.hasOwnProperty(symbol.getName())) {
+        output[symbol.getName()] = serializeTypeAlias(node, symbol);
       }
     }
   }
@@ -62,19 +74,29 @@ export function generateDocs(fileNames: string[], options: ts.CompilerOptions) {
     return {
       tag: 'Class',
       name: symbol.name,
-      documentation: ts.displayPartsToString(symbol.getDocumentationComment(checker)),
+      documentation: ts.displayPartsToString(symbol.getDocumentationComment(checker)).replace(/\n\s*\* /g, '\n'),
     };
   }
 
   /** Serialize function **/
   function serializeFunction(node: ts.Node, symbol: ts.Symbol): DocEntry {
     const functionType = checker.getTypeOfSymbolAtLocation(symbol, symbol.valueDeclaration!);
-    
     return {
       tag: 'Function',
       name: symbol.getName(),
-      documentation: ts.displayPartsToString(symbol.getDocumentationComment(checker)),
+
+      documentation: ts.displayPartsToString(symbol.getDocumentationComment(checker)).replace(/\n\s*\* /g, '\n'),
       signatures: functionType.getCallSignatures().map(x => checker.signatureToString(x, node, ts.TypeFormatFlags.NoTruncation)),
+    };
+  }
+
+  /** Serialize type alias **/
+  function serializeTypeAlias(node: ts.TypeAliasDeclaration, symbol: ts.Symbol): DocEntry {
+    return {
+      tag: 'Type',
+      name: symbol.getName(),
+      documentation: ts.displayPartsToString(symbol.getDocumentationComment(checker)).replace(/\n\s*\* /g, '\n'),
+      type: node.getText(), // checker.typeToString(checker.getTypeFromTypeNode(node.type)),
     };
   }
 
@@ -86,7 +108,7 @@ export function generateDocs(fileNames: string[], options: ts.CompilerOptions) {
       tag: 'Method',
       parent: parent.getName(),
       name: symbol.getName(),
-      documentation: ts.displayPartsToString(symbol.getDocumentationComment(checker)),
+      documentation: ts.displayPartsToString(symbol.getDocumentationComment(checker)).replace(/\n\s*\* /g, '\n'),
       signatures: functionType.getCallSignatures().map(x => checker.signatureToString(x, undefined, ts.TypeFormatFlags.NoTruncation)),
     };
   }
@@ -100,11 +122,10 @@ function isNodeExported(node: ts.Declaration): boolean {
 }
 
 
-function generateMarkdown(docs: Docs, priority: string[] = []): string {
+function generateMarkdown(docs: Docs, files: string[] = Object.keys(docs)): string {
   let contents = '';
   let output = '';
-  const keys = uniq(priority.concat(Object.keys(docs)));
-  for (const k of keys) {
+  for (const k of files) {
     if (isEmpty(docs[k])) continue;
     addModule(k);
   }
@@ -127,6 +148,11 @@ function generateMarkdown(docs: Docs, priority: string[] = []): string {
         const title = `class ${entry.name}`;
         return { title, output: `### ${title}\n\n${entry.documentation}` };
       }
+      case 'Type': {
+        const title = `type ` + entry.name;
+        const declaration = entry.type
+        return { title, output: `### ${title}\n\n` + '```\n' + declaration + '\n```' + `\n\n${entry.documentation}` };
+      }
       case 'Function': {
         const title = entry.name;
         const signatures = entry.signatures.map(x => 'function ' + entry.name + x + ';');
@@ -135,6 +161,7 @@ function generateMarkdown(docs: Docs, priority: string[] = []): string {
       case 'Method': {
         const title = `${entry.parent}.prototype.${entry.name}`;
         const signatures = entry.signatures.map(x => entry.name + x + ';');
+
         return { title, output: `### ${title}\n\n${'```\n' + signatures.join('\n') + '\n```\n\n'}${entry.documentation}` };
       }
     }
@@ -145,4 +172,5 @@ const priority = ['src/parser.ts', 'src/adapter.ts', 'src/option.ts'];
 const fileNames = process.argv.slice(2);
 const docEntries = generateDocs(fileNames, { target: ts.ScriptTarget.ES5, module: ts.ModuleKind.CommonJS });
 
+// console.log(docEntries);
 console.log(generateMarkdown(docEntries, priority));

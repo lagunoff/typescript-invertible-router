@@ -10,38 +10,13 @@ import { absurd } from './internal/types';
 // http://www.informatik.uni-marburg.de/~rendel/unparse/rendel10invertible.pdf
 // https://github.com/evancz/url-parser/tree/2.0.1
 
-/** Options for `doParse` */
-export enum ParseOptions {
-  OnlyFirstMatch = 0x1 << 0,
-  AllSegmentsConsumed = 0x1 << 1,
-}
-const { OnlyFirstMatch, AllSegmentsConsumed } = ParseOptions;
-
 
 /**
- * Serialised representation of methods of `Parser`. Instances of
- * class `Parser` contain information about how they were
- * constructed. Later this information is used in `doParse` and
- * `doPrint`.
- */
-export type Parser<O={}, I=O> =
-  | Params<O, I>  // { params: Record<string, Adapter<any>> }
-  | Segment<O, I> // { key: string, adapter: Adapter<any> }
-  | Embed<O, I>   // { key: string, parser: Parser<unknown> }
-  | OneOf<O, I>   // { tags: Record<string, Parser<unknown>>, prefixTrie?: PrefixTrie }
-  | Path<O, I>    // { segments: string[] }
-  | Extra<O, I>   // { payload: object }
-  | Custom<O, I>  // { parse(s: ParserState): Array<[O, ParserState]>, print(a: I): UrlChunks }
-  | Merge<O, I>   // { first: Parser<object>, second: Parser<object> }
-  ;
-
-
-/**
- * `Parser` defines mutual correspondence between strings (relative
- * urls) (e.g. "/" "/shop" "/blog?tags=art") and some intermediate
- * data structure, usually named `Route`. Parser maybe is a misleading
- * name, because besides parsing it also does the opposite operation,
- * printing.
+ * Parser defines rules for matching urls to some intermediate
+ * structure of type `O` (O for output). All parsers are invertible,
+ * i.e. you can get back original url from an `I` using method
+ * `print`. `I` (for input) is usually the same type as `O`, but some
+ * fields could be optional
  * 
  * ```ts
  * type Route = 
@@ -60,29 +35,45 @@ export type Parser<O={}, I=O> =
  * console.log(parser.print({ tag: 'Blog', category: 'science', page: 3 })); // => "/blog/science?page=3"
  * console.log(parser.print({ tag: 'Home' })); // => ""
  * ```
- * @param O Result of parsing (output)
- * @param I Input for printing, usually same as `O`
+ * @param O Result of `parse` (output)
+ * @param I Input for `print`, usually same as `O`
  */
+export type Parser<O={}, I=O> =
+  | Params<O, I>  // { _params: Record<string, Adapter<any>> }
+  | Segment<O, I> // { _key: string, _adapter: Adapter<any> }
+  | Embed<O, I>   // { _key: string, _parser: Parser<unknown> }
+  | OneOf<O, I>   // { _tags: Record<string, Parser<unknown>>, _prefixTrie?: PrefixTrie }
+  | Path<O, I>    // { _segments: string[] }
+  | Extra<O, I>   // { _payload: object }
+  | Custom<O, I>  // { _parse(s: ParserState): Array<[O, ParserState]>, _print(a: I): UrlChunks }
+  | Merge<O, I>   // { _first: Parser<object>, _second: Parser<object> }
+  ;
+
+
+// Instance methods
 export class ParserBase<O={}, I=O> {
   readonly _O: O;
   readonly _I: I;
   
-  /** Try to match given string against the rules */
+  /**
+   *  Try to match given string to an `O`
+   */
   parse(url: string): O|null {
     const self = this as any as Parser<O, I>;
     const results = doParse(self, prepareState(url), OnlyFirstMatch);
     return results.length ? results[0][0] : null;
   }
 
-  /** Convert result of parsing back into url. Inverse of `parse` */
+  /** 
+   * Inverse of `parse`. Convert result of parsing back into url.
+   */
   print(route: I): string {
     const self = this as any as Parser<O, I>;
     return assembleChunks(doPrint(self, route));
   }
 
   /**
-   * Similar to `parse`, but returns all succeeded routes, not just
-   * the "best fit"
+   * Similar to `parse`, but returns all intermediate routes
    * 
    * ```ts
    * const parser = r.oneOf(
@@ -146,7 +137,7 @@ export class ParserBase<O={}, I=O> {
   }
   
   /**
-   * Check query string parameters
+   * Add query parameters
    * 
    * ```ts
    * const parser = r.path('/shop/items').params({ offset: r.nat.withDefault(0), limit: r.nat.withDefault(20), search: r.string.withDefault('') });
@@ -224,68 +215,6 @@ export class ParserBase<O={}, I=O> {
   }
 }
 
-
-export class Params<O, I=O> extends ParserBase<O, I> {
-  constructor(
-    readonly _params: Record<string, Adapter<any>>,
-  ){ super(); }
-}
-
-
-export class Segment<O, I=O> extends ParserBase<O, I> {
-  constructor(
-    readonly _key: string,
-    readonly _adapter: Adapter<any>,
-  ){ super(); }
-}
-
-
-export class Path<O, I=O> extends ParserBase<O, I> {
-  constructor(
-    readonly _segments: string[]
-  ){ super(); }
-}
-
-
-export class Embed<O, I=O> extends ParserBase<O, I> {
-  constructor(
-    readonly _key: string,
-    readonly _parser: Parser<any>,
-  ){ super(); }
-}
-
-
-export class Merge<O, I=O> extends ParserBase<O, I> {
-  constructor(
-    readonly _first: Parser<any>,
-    readonly _second: Parser<any>,
-  ){ super(); }
-}
-
-
-export class OneOf<O, I=O> extends ParserBase<O, I> {
-  constructor(
-    readonly _tags: Record<string, Parser<any>>,
-    readonly _prefixTrie?: PrefixTrie,
-  ){ super(); }
-}
-
-
-export class Extra<O, I=O> extends ParserBase<O, I> {
-  constructor(
-    readonly _payload: object,
-  ){ super(); }
-}
-
-
-export class Custom<O, I=O> extends ParserBase<O, I> {
-  constructor(
-    readonly _parse: (s: ParserState) => Array<[O, ParserState]>,
-    readonly _print: (a: I) => UrlChunks,
-  ){ super(); }
-}
-
-
 /** Provide parser with a unique key in order to use it in `oneOf` */
 export function tag<T extends string>(tag: T): Parser<{ tag: T }, { tag: T }> {
   return new Extra({ tag });
@@ -323,7 +252,7 @@ export function embed<K extends string, That extends Parser<any, any>>(key: K, t
 
 
 /**
- * Implement custom parser
+ * Construct a custom parser
  */
 export function custom<O, I=O>(parse: (s: ParserState) => Array<[O, ParserState]>, print: (a: I) => UrlChunks): Custom<O, I> {
   return new Custom(parse, print);
@@ -337,7 +266,7 @@ export type WithTag = Parser<{ tag: string }, { tag: string }>;
 
 /**
  * Combine multiple alternative parsers. All parsers should be
- * constructed with `tag`
+ * provided with a `tag`
  * 
  * ```ts
  * const parser = r.oneOf([
@@ -397,6 +326,7 @@ export function assembleChunks(chunks: UrlChunks): string {
 }
 
 
+// Make an instance of `O` from `I`
 export function toOutput<O, I>(parser: Parser<O, I>, input: I): O {
   if (parser instanceof Params) {
     // @ts-ignore
@@ -448,20 +378,19 @@ export function toOutput<O, I>(parser: Parser<O, I>, input: I): O {
 
 // Parsers that can produce only one output
 export type SingleParser<O={}, I=O> =
-  | Params<O, I>  // { params: Record<string, Adapter<any>> }
-  | Segment<O, I> // { key: string, adapter: Adapter<any> }
-  | Path<O, I>    // { segments: string[] }
-  | Extra<O, I>   // { payload: object }
+  | Params<O, I>
+  | Segment<O, I>
+  | Path<O, I>
+  | Extra<O, I>
 
 
 // Parsers that can produce many outputs
 export type MultipleParser<O={}, I=O> =
-  | Embed<O, I>   // { key: string, parser: Parser<unknown> }
-  | OneOf<O, I>   // { tags: Record<string, Parser<unknown>>, prefixTrie?: PrefixTrie }
-  | Custom<O, I>  // { parse(s: ParserState): Array<[O, ParserState]>, print(a: I): UrlChunks }
-  | Merge<O, I>   // { first: Parser<object>, second: Parser<object> }
+  | Embed<O, I>
+  | OneOf<O, I>
+  | Custom<O, I>
+  | Merge<O, I>
   ;
-
 
 
 // Do actual parsing
@@ -658,18 +587,12 @@ export function doPrint<I>(parser: Parser<any, I>, route: I): UrlChunks {
 }
 
 
-// Internal parser state
-export class ParserState {
-  constructor(
-    public segments: string[],
-    public params: Record<string, string>,
-    public idx: number,
-  ) {}
-
-  clone() {
-    return new ParserState(this.segments, this.params, this.idx);
-  }
+/** Options for `doParse` */
+export enum ParseOptions {
+  OnlyFirstMatch = 0x1 << 0,
+  AllSegmentsConsumed = 0x1 << 1,
 }
+const { OnlyFirstMatch, AllSegmentsConsumed } = ParseOptions;
 
 
 /**
@@ -687,6 +610,20 @@ export type UrlChunks = [string[], Record<string, string>];
 export interface PrefixTrie {
   '': Parser[];
   [k: string]: Parser[]|PrefixTrie; // should be `PrefixTrie`, but ts complains
+}
+
+
+// Internal parser state
+export class ParserState {
+  constructor(
+    public segments: string[],
+    public params: Record<string, string>,
+    public idx: number,
+  ) {}
+
+  clone() {
+    return new ParserState(this.segments, this.params, this.idx);
+  }
 }
 
 
@@ -713,6 +650,7 @@ export type OutParams<R> = {
 }
 
 
+// Build optimization structure for `oneOf`
 function buildTrie<O, I>(tags: Record<string, Parser<O, I>>): PrefixTrie {
   const trie: PrefixTrie = { '': [] };
   for (const k in tags) {
@@ -727,7 +665,7 @@ function buildTrie<O, I>(tags: Record<string, Parser<O, I>>): PrefixTrie {
 }
 
 
-// custom uri encoding
+// Custom uri encoding
 const prettyUriEncode: (str: string) => string = function () {
   const keepIntact = [':', ','].reduce((acc, c) => (acc[encodeURIComponent(c)] = c, acc), {});
   const re = new RegExp(Object.keys(keepIntact).map(escapeRegExp).join('|'), 'g');
@@ -773,4 +711,65 @@ function getName<A>(adapter: Adapter<A>): Option<string> {
   if (adapter instanceof DimapAdapter) return getName(adapter._adapter);
   if (adapter instanceof HasAdapter) return getName(adapter.toAdapter());
   return absurd(adapter);
+}
+
+
+export class Params<O, I=O> extends ParserBase<O, I> {
+  constructor(
+    readonly _params: Record<string, Adapter<any>>,
+  ){ super(); }
+}
+
+
+export class Segment<O, I=O> extends ParserBase<O, I> {
+  constructor(
+    readonly _key: string,
+    readonly _adapter: Adapter<any>,
+  ){ super(); }
+}
+
+
+export class Path<O, I=O> extends ParserBase<O, I> {
+  constructor(
+    readonly _segments: string[]
+  ){ super(); }
+}
+
+
+export class Embed<O, I=O> extends ParserBase<O, I> {
+  constructor(
+    readonly _key: string,
+    readonly _parser: Parser<any>,
+  ){ super(); }
+}
+
+
+export class Merge<O, I=O> extends ParserBase<O, I> {
+  constructor(
+    readonly _first: Parser<any>,
+    readonly _second: Parser<any>,
+  ){ super(); }
+}
+
+
+export class OneOf<O, I=O> extends ParserBase<O, I> {
+  constructor(
+    readonly _tags: Record<string, Parser<any>>,
+    readonly _prefixTrie?: PrefixTrie,
+  ){ super(); }
+}
+
+
+export class Extra<O, I=O> extends ParserBase<O, I> {
+  constructor(
+    readonly _payload: object,
+  ){ super(); }
+}
+
+
+export class Custom<O, I=O> extends ParserBase<O, I> {
+  constructor(
+    readonly _parse: (s: ParserState) => Array<[O, ParserState]>,
+    readonly _print: (a: I) => UrlChunks,
+  ){ super(); }
 }

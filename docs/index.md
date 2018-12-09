@@ -1,5 +1,5 @@
  * [src/parser.ts](#srcparserts)
-   * [class ParserBase](#classparserbase)
+   * [type Parser](#typeparser)
    * [ParserBase.prototype.parse](#parserbaseprototypeparse)
    * [ParserBase.prototype.print](#parserbaseprototypeprint)
    * [ParserBase.prototype.parseAll](#parserbaseprototypeparseall)
@@ -10,12 +10,16 @@
    * [ParserBase.prototype.embed](#parserbaseprototypeembed)
    * [ParserBase.prototype.extra](#parserbaseprototypeextra)
    * [ParserBase.prototype.toOutput](#parserbaseprototypetooutput)
-   * [ParserBase.prototype.toParser](#parserbaseprototypetoparser)
    * [tag](#tag)
    * [custom](#custom)
    * [oneOf](#oneof)
-   * [class ParserState](#classparserstate)
+   * [type UrlChunks](#typeurlchunks)
  * [src/adapter.ts](#srcadapterts)
+   * [type Adapter](#typeadapter)
+   * [AdapterBase.prototype.apply](#adapterbaseprototypeapply)
+   * [AdapterBase.prototype.unapply](#adapterbaseprototypeunapply)
+   * [AdapterBase.prototype.applyOption](#adapterbaseprototypeapplyoption)
+   * [AdapterBase.prototype.unapplyOption](#adapterbaseprototypeunapplyoption)
    * [AdapterBase.prototype.withName](#adapterbaseprototypewithname)
    * [AdapterBase.prototype.withDefault](#adapterbaseprototypewithdefault)
    * [AdapterBase.prototype.dimap](#adapterbaseprototypedimap)
@@ -32,33 +36,41 @@
    * [class None](#classnone)
    * [class Some](#classsome)
    * [traverse](#traverse)
- * [src/internal/types.ts](#srcinternaltypests)
-   * [absurd](#absurd)
- * [src/internal/parser-iterator.ts](#srcinternalparseriteratorts)
-   * [default](#default)
- * [src/internal/prepare-oneof.ts](#srcinternalprepareoneofts)
 
 
 ## src/parser.ts
 
-### class ParserBase
+### type Parser
 
-`Parser` defines mutual correspondence between strings (relative
-urls) (e.g. "/" "/shop" "/blog?tags=art") and some intermediate
-data structure, usually named `Route`. Parser maybe is a misleading
-name, because besides parsing it also does the opposite operation,
-printing.
+```
+export type Parser<O={}, I=O> =
+  | Params<O, I>  // { _params: Record<string, Adapter<any>> }
+  | Segment<O, I> // { _key: string, _adapter: Adapter<any> }
+  | Embed<O, I>   // { _key: string, _parser: Parser<unknown> }
+  | OneOf<O, I>   // { _tags: Record<string, Parser<unknown>>, _prefixTrie?: PrefixTrie }
+  | Path<O, I>    // { _segments: string[] }
+  | Extra<O, I>   // { _payload: object }
+  | Custom<O, I>  // { _parse(s: ParserState): Array<[O, ParserState]>, _print(a: I): UrlChunks }
+  | Merge<O, I>   // { _first: Parser<object>, _second: Parser<object> }
+  ;
+```
+
+Parser defines rules for matching urls to some intermediate
+structure of type `O` (O for output). All parsers are invertible,
+i.e. you can get back original url from an `I` using method
+`print`. `I` (for input) is usually the same type as `O`, but some
+fields could be optional
 
 ```ts
 type Route = 
-   | { tag: 'Home' }
-   | { tag: 'Blog', category: 'art'|'science', page: number }
-   | { tag: 'Contacts' }
+  | { tag: 'Home' }
+  | { tag: 'Blog', category: 'art'|'science', page: number }
+  | { tag: 'Contacts' }
 
 const parser = r.oneOf(
-   r.tag('Home'),
-   r.tag('Blog').path('/blog').segment('category', r.literals('art', 'science')).params({ page: r.nat.withDefault(1) }),
-   r.tag('Contacts').path('/contacts'),
+  r.tag('Home'),
+  r.tag('Blog').path('/blog').segment('category', r.literals('art', 'science')).params({ page: r.nat.withDefault(1) }),
+  r.tag('Contacts').path('/contacts'),
 );
 
 console.log(parser.parse('/blog/art')); // => { tag: 'Blog', category: 'art', page: 1 }
@@ -73,7 +85,7 @@ console.log(parser.print({ tag: 'Home' })); // => ""
 parse(url: string): O;
 ```
 
-Try to match given string against the rules 
+Try to match given string to an `O`
 
 ### ParserBase.prototype.print
 
@@ -81,7 +93,7 @@ Try to match given string against the rules
 print(route: I): string;
 ```
 
-Convert result of parsing back into url. Inverse of `parse` 
+Inverse of `parse`. Convert result of parsing back into url.
 
 ### ParserBase.prototype.parseAll
 
@@ -89,14 +101,13 @@ Convert result of parsing back into url. Inverse of `parse`
 parseAll(url: string): O[];
 ```
 
-Similar to `parse`, but returns all succeeded routes, not just
-the "best fit"
+Similar to `parse`, but returns all intermediate routes
 
 ```ts
 const parser = r.oneOf(
-   r.tag('Home').path('/'),
-   r.tag('Shop').path('/shop'),
-   r.tag('Item').path('/shop/item').segment('id', r.nestring),
+  r.tag('Home').path('/'),
+  r.tag('Shop').path('/shop'),
+  r.tag('Item').path('/shop/item').segment('id', r.nestring),
 );
 console.log(parser.parseAll('/shop/item/42'));
 // => [{ tag: 'Item', id: '42' }, { tag: 'Shop' }, { tag: 'Home' }]
@@ -105,7 +116,7 @@ console.log(parser.parseAll('/shop/item/42'));
 ### ParserBase.prototype.path
 
 ```
-path(path: string): Parser<O, I>;
+path(path: string): Merge<O, I>;
 ```
 
 Add path segments to parser
@@ -118,7 +129,7 @@ console.log(parser.print({ tag: 'Contacts' })); // => "my/contacts"
 ### ParserBase.prototype.segment
 
 ```
-segment<K extends string, A extends Adapter<any, {}>>(key: K, adapter: A): Parser<O & { [K_ in K]: A["_A"]; }, I & { [K in Exclude<K, { [K in K]: { [K_ in K]: A; }[K] extends Adapter<infer A, { hasDefault: true; }> ? K : never; }[K]>]: { [K_ in K]: A; }[K] extends Adapter<infer A, any> ? A : never; } & { [K in { [K in K]: { [K_ in K]: A; }[K] extends Adapter<infer A, { hasDefault: true; }> ? K : never; }[K]]?: { [K_ in K]: A; }[K] extends Adapter<infer A, any> ? A : never; }>;
+segment<K extends string, A extends Adapter<any, { nonEmpty: true; }>>(key: K, adapter: A): Parser<O & { [K_ in K]: A["_A"]; }, I & { [K in keyof { [K_ in K]: A; }]: { [K_ in K]: A; }[K] extends Adapter<infer A, { hasDefault: any; }> ? { [K_ in K]?: A; } : { [K_ in K]: A; }[K] extends Adapter<infer A, any> ? { [K_ in K]: A; } : never; }[K]>;
 ```
 
 Check one path segment with adapter and store the result in the
@@ -134,10 +145,10 @@ console.log(parser.print({ category: 'music', page: 1 })); // => "category/music
 ### ParserBase.prototype.params
 
 ```
-params<R extends Record<string, Adapter<any, {}>>>(params: R): Parser<O & OutParams<R>, I & { [K in Exclude<keyof R, { [K in keyof R]: R[K] extends Adapter<infer A, { hasDefault: true; }> ? K : never; }[keyof R]>]: R[K] extends Adapter<infer A, any> ? A : never; } & { [K in { [K in keyof R]: R[K] extends Adapter<infer A, { hasDefault: true; }> ? K : never; }[keyof R]]?: R[K] extends Adapter<infer A, any> ? A : never; }>;
+params<R extends Record<string, Adapter<any, {}>>>(params: R): Parser<O & OutParams<R>, I & { [K in keyof R]: R[K] extends Adapter<infer A, { hasDefault: any; }> ? { [K_ in K]?: A; } : R[K] extends Adapter<infer A, any> ? { [K_ in K]: A; } : never; }[keyof R]>;
 ```
 
-Check query string parameters
+Add query parameters
 
 ```ts
 const parser = r.path('/shop/items').params({ offset: r.nat.withDefault(0), limit: r.nat.withDefault(20), search: r.string.withDefault('') });
@@ -148,7 +159,7 @@ console.log(parser.print({ offset: 20, limit: 20, search: "bana" })); // => "sho
 ### ParserBase.prototype.merge
 
 ```
-merge<That extends Parser<any, any>>(that: That): Parser<O & That["_O"], I & That["_I"]>;
+merge<That extends Parser<any, any>>(that: That): Merge<O & That["_O"], I & That["_I"]>;
 ```
 
 Join two parsers together. Underlying types will be combined through
@@ -164,7 +175,7 @@ console.log(parser.print({ tag: "Blog", page: 10 })); // => "website/blog?page=1
 ### ParserBase.prototype.embed
 
 ```
-embed<K extends string, That extends Parser<any, any>>(key: K, that: That): Parser<O & { [k in K]: That["_O"]; }, I & { [k in K]: That["_I"]; }>;
+embed<K extends string, That extends Parser<any, any>>(key: K, that: That): Merge<O & { [k in K]: That["_O"]; }, I & { [k in K]: That["_I"]; }>;
 ```
 
 Join two parsers together. Result of the second parser will be
@@ -180,7 +191,7 @@ console.log(parser.print({ tag: "Blog", page: 10 })); // => "website/blog?page=1
 ### ParserBase.prototype.extra
 
 ```
-extra<E extends {}>(payload: E): Parser<O & E, I>;
+extra<E extends {}>(payload: E): Merge<O & E, I>;
 ```
 
 Add some extra fields to the output. These fields are not
@@ -190,9 +201,9 @@ configuration in one place.
 
 ```ts
 const parser = r.oneOf(
-   r.tag('Shop').path('/shop').extra({ component: require('./Shop') }),
-   r.tag('Blog').path('/blog').extra({ component: require('./Blog') }),
-   r.tag('Contacts').path('/contacts').extra({ component: require('./Contacts') }),
+  r.tag('Shop').path('/shop').extra({ component: require('./Shop') }),
+  r.tag('Blog').path('/blog').extra({ component: require('./Blog') }),
+  r.tag('Contacts').path('/contacts').extra({ component: require('./Contacts') }),
 );
 console.log(parser.parse('/contacts')); // => { tag: "Contacts", component: Shop { ... } }
 console.log(parser.print({ tag: "Contacts" })); // => "contacts"
@@ -204,15 +215,7 @@ console.log(parser.print({ tag: "Contacts" })); // => "contacts"
 toOutput(input: I): O;
 ```
 
-Add additional fields to `I` 
-
-### ParserBase.prototype.toParser
-
-```
-toParser(): Parser<O, I>;
-```
-
-Type coersion 
+Add additional fields to `I`
 
 ### tag
 
@@ -220,7 +223,7 @@ Type coersion
 function tag<T extends string>(tag: T): Parser<{ tag: T; }, { tag: T; }>;
 ```
 
-Provide parser with a unique key in order to use it in `oneOf` 
+Provide parser with a unique key in order to use it in `oneOf`
 
 ### custom
 
@@ -228,44 +231,107 @@ Provide parser with a unique key in order to use it in `oneOf`
 function custom<O, I = O>(parse: (s: ParserState) => [O, ParserState][], print: (a: I) => [string[], Record<string, string>]): Custom<O, I>;
 ```
 
-Implement custom parser
+Construct a custom parser
 
 ### oneOf
 
 ```
-function oneOf<P extends Parser<{ tag: string; }, { tag: string; }>[]>(...args: P): Parser<P[number]["_O"], P[number]["_I"]>;
-function oneOf<P extends Parser<{ tag: string; }, { tag: string; }>[]>(array: P): Parser<P[number]["_O"], P[number]["_I"]>;
+function oneOf<P extends Parser<{ tag: string; }, { tag: string; }>[]>(...args: P): OneOf<P[number]["_O"], P[number]["_I"]>;
+function oneOf<P extends Parser<{ tag: string; }, { tag: string; }>[]>(array: P): OneOf<P[number]["_O"], P[number]["_I"]>;
 ```
 
 Combine multiple alternative parsers. All parsers should be
-constructed with `tag`
+provided with a `tag`
 
 ```ts
 const parser = r.oneOf([
-   r.tag('First').path('/first'),
-   r.tag('Second').path('/second'),
-   r.tag('Third').path('/third'),
+  r.tag('First').path('/first'),
+  r.tag('Second').path('/second'),
+  r.tag('Third').path('/third'),
 ]);
 console.log(parser.parse('/first')); // => { tag: "First" }
 console.log(parser.parse('/second')); // => { tag: "Second" }
 console.log(parser.print({ tag: 'Third' })); // => "third"
 ```
 
-### class ParserState
+### type UrlChunks
 
-Internal parser state 
+```
+export type UrlChunks = [string[], Record<string, string>];
+```
+
+Deconstructed url. The first element of the tuple is the list of
+path segments and the second is query string dictionary. This type
+is used as the result type of `doPrint`
 
 
 
 ## src/adapter.ts
 
+### type Adapter
+
+```
+export type Adapter<A, F={}> =
+  | CustomAdapter<A, F>  // { _apply: (s: string) => Option<A>, _unapply: (a: A) => string }
+  | DefaultAdapter<A, F> // { _adapter: Adapter<A, any>, _default: A }
+  | NamedAdapter<A, F>   // { _adapter: Adapter<A, any>, _name: string }
+  | DimapAdapter<A, F>   // { _map: (x: B) => A, _comap: (x: A) => B, _adapter: Adapter<B, F> }
+  | HasAdapter<A, F>     // { toAdapter(): Adapter<A, F> }
+  ;
+```
+
+Partial isomorphism between `string` and `A`. Parameter `F`
+contains type-level flags for distinguishing different kinds of
+adapters. An adapter can be thought of as just a pair of functions
+like in this simplified definition
+
+```ts
+type Adapter<A> = {
+  apply(s: string): Option<A>;
+  unapply(a: A): string;
+};
+```
+
+### AdapterBase.prototype.apply
+
+```
+apply(s: string): Option<A>;
+```
+
+Try to match a string to a value of type `A`
+
+### AdapterBase.prototype.unapply
+
+```
+unapply(a: A): string;
+```
+
+Inverse of `apply`. Serialize an `A` back into a string
+
+### AdapterBase.prototype.applyOption
+
+```
+applyOption(s: Option<string>): Option<A>;
+```
+
+Similar to `apply` but also handles lack of the input (when the
+key doesn't exist in query parameters)
+
+### AdapterBase.prototype.unapplyOption
+
+```
+unapplyOption(a: A): Option<string>;
+```
+
+Inverse of `applyOption`
+
 ### AdapterBase.prototype.withName
 
 ```
-withName(name: string): NamedAdapter<A, F & { hasName: true; }>;
+withName(name: string): NamedAdapter<A, F>;
 ```
 
-Set different parameter name compared to the name of the field
+Provide different parameter name
 
 ```ts
 const parser = r.path('/home').params({ snakeCase: r.nat.withName('snake_case') });
@@ -278,7 +344,8 @@ console.log(parser.print({ snakeCase: 42 }));  // => "home?snake_case=42"
 withDefault<B>(_default: B): DefaultAdapter<A | B, F & { hasDefault: true; }>;
 ```
 
-Provide default value, new adapter will always succeed
+Provide default value. This value will be used when the key
+doesn't exist in the query parameters
 
 ```ts
 const parser = r.path('shop/items').params({ search: r.string.withDefault(''), page: r.nat.withDefault(1) });
@@ -299,8 +366,8 @@ Change type variable inside `Adapter`, similar to
 ```ts
 const litAdapter = r.literals('one', 'two', 'three');
 const choiceAdapter = litAdapter.dimap(
-   n => ['one', 'two', 'three'].indexOf(n) + 1,
-   n => ['one', 'two', 'three'][n - 1] as any,
+  n => ['one', 'two', 'three'].indexOf(n) + 1,
+  n => ['one', 'two', 'three'][n - 1] as any,
 );
 const parser = r.path('/quiz').params({ choice: choiceAdapter });
 console.log(parser.parse('/quiz?choice=three')); // => { choice: 3 }
@@ -310,7 +377,7 @@ console.log(parser.print({ choice: 1 })); // => "quiz?choice=one"
 ### array
 
 ```
-function array<A>(adapter: Adapter<A, {}>): CustomAdapter<A[], {}>;
+function array<A>(adapter: Adapter<A, any>): CustomAdapter<A[], {}>;
 ```
 
 Comma-separated list
@@ -346,7 +413,7 @@ console.log(parser.parse('fruits/potato')); // => null
 function of<A extends Expr>(a: A): CustomAdapter<A, {}>;
 ```
 
-Create adapter that always succeeds with the given value 
+Create adapter that always succeeds with the given value
 
 ### custom
 
@@ -354,7 +421,7 @@ Create adapter that always succeeds with the given value
 function custom<A>(apply: (s: string) => Option<A>, unapply: (a: A) => string): CustomAdapter<A, {}>;
 ```
 
-Constructor for `TotalAdapter` 
+Constructor for `CustomAdapter`
 
 
 
@@ -366,7 +433,7 @@ Constructor for `TotalAdapter`
 map<B>(proj: (a: A) => B): Option<B>;
 ```
 
-Apply function `f` to the underlying value 
+Apply function `f` to the underlying value
 
 ### OptionBase.prototype.chain
 
@@ -374,7 +441,7 @@ Apply function `f` to the underlying value
 chain<B>(f: (a: A) => Option<B>): Option<B>;
 ```
 
-Extract value from `this` then apply `f` to the result 
+Extract value from `this` then apply `f` to the result
 
 ### OptionBase.prototype.fold
 
@@ -382,7 +449,7 @@ Extract value from `this` then apply `f` to the result
 fold<B extends Expr, C extends Expr>(fromNone: B, fromSome: (x: A) => C): B | C;
 ```
 
-Unwrap underlying value 
+Unwrap underlying value
 
 ### OptionBase.prototype.withDefault
 
@@ -390,7 +457,7 @@ Unwrap underlying value
 withDefault<B extends Expr>(fromNone: B): A | B;
 ```
 
-Unwrap value by providing result for `None` case 
+Unwrap value by providing result for `None` case
 
 ### OptionBase.prototype.or
 
@@ -398,7 +465,7 @@ Unwrap value by providing result for `None` case
 or<B>(that: Option<B>): Option<A | B>;
 ```
 
-Similar to `||` operation with nullable types 
+Similar to `||` operation with nullable types
 
 ### class None
 
@@ -407,7 +474,7 @@ Class which instances represent absence of value, similar to `null` and
 
 ### class Some
 
-Contains one single value 
+Contains one single value
 
 ### traverse
 
@@ -424,34 +491,5 @@ const divisors2 = [0, 1, 2, 3];
 console.log(traverse(divisors1, b => safeDiv(10, b))); // => Some { value: [...] }
 console.log(traverse(divisors2, b => safeDiv(10, b))); // => None { }
 ```
-
-
-
-## src/internal/types.ts
-
-### absurd
-
-```
-function absurd(x: never): any;
-```
-
-Helper for totality checking 
-
-
-
-## src/internal/parser-iterator.ts
-
-### default
-
-```
-function default<O, I>(parser: Parser<O, I>): IterableIterator<Parser<O, I>>;
-```
-
-Iterative tree traversal as described
-https://www.geeksforgeeks.org/iterative-postorder-traversal-using-stack/
-
-
-
-## src/internal/prepare-oneof.ts
 
 

@@ -11,3 +11,4 @@
 /examples/node_modules
 /scripts/node_modules
 /lib
+/scripts/*.js
