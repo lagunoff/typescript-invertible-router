@@ -331,9 +331,9 @@ export function toOutput<O, I>(parser: Parser<O, I>, input: I): O {
   if (parser instanceof Params) {
     // @ts-ignore
     const output = { ...input } as O;
-    for (const k in parser.params) {
+    for (const k in parser._params) {
       if (!(k in output)) {
-        const maybeDefault = getDefaultValue(parser.params[k]);
+        const maybeDefault = getDefaultValue(parser._params[k]);
         if (maybeDefault.isSome()) output[k] = maybeDefault.value;
       }
     }
@@ -342,7 +342,7 @@ export function toOutput<O, I>(parser: Parser<O, I>, input: I): O {
   
   if (parser instanceof Segment) {
     // @ts-ignore
-    return parser.key in input ? input as O : { ...input, [parser.key]: getDefaultValue(parser.adapter) } as O;
+    return parser._key in input ? input as O : { ...input, [parser._key]: getDefaultValue(parser._adapter) } as O;
   }
   
   if (parser instanceof Path) {
@@ -351,7 +351,7 @@ export function toOutput<O, I>(parser: Parser<O, I>, input: I): O {
 
   if (parser instanceof Embed) {
     // @ts-ignore
-    return { ...input, [parser.key]: toOutput(parser.parser, input[parser.key]) } as O;
+    return { ...input, [parser._key]: toOutput(parser._parser, input[parser._key]) } as O;
   }
 
   if (parser instanceof OneOf) {
@@ -360,7 +360,7 @@ export function toOutput<O, I>(parser: Parser<O, I>, input: I): O {
 
   if (parser instanceof Extra) {
     // @ts-ignore
-    return { ...input, ...parser.payload } as O;
+    return { ...input, ...parser._payload } as O;
   }
 
   if (parser instanceof Custom) {
