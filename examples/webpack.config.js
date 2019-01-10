@@ -15,7 +15,7 @@ module.exports = function(env={}) {
       filename: '[name].bundle.js',
     },
     module: {
-      loaders: [{
+      rules: [{
         test: /\.tsx?$/,
         loader: 'ts-loader',
         options: {
